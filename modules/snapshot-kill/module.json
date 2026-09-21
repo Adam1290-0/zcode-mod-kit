@@ -1,0 +1,9 @@
+{
+  "slug": "snapshot-kill",
+  "display_name": "快照拦截",
+  "version": "1.1.0",
+  "description": "Block background repo-snapshot capture/upload inside out/host/index.js (default-deny gate; ZCODE_SNAPSHOT_ALLOW=1 restores official behavior). Auto-detects builds where the subsystem was removed upstream and becomes a no-op.",
+  "order": 50,
+  "targets": ["asar"],
+  "markers": ["zcode-snapshot-kill-switch"]
+}

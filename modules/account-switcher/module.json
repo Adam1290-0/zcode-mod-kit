@@ -1,0 +1,9 @@
+{
+  "slug": "account-switcher",
+  "display_name": "多账号切换",
+  "version": "1.0.2",
+  "description": "多订阅账号本地快照与一键切换（头像菜单/设置侧栏/模型设置页三处入口，含 aux 登录态快照）",
+  "order": 40,
+  "targets": ["asar"],
+  "markers": ["zcode-account-switcher"]
+}

@@ -48,11 +48,26 @@ def main() -> None:
     if "</script>" in js:
         fail("ui_skin.js contains '</script>' literal; block regex would be unsafe")
 
-    html = html_path.read_text(encoding="utf-8")
+    html = html_path.read_text(encoding="utf-8", newline="")
 
-    # Idempotent: marker present -> skip (do not double-inject).
+    # Stale-block check: an injected block whose payload differs from the
+    # current asset is an OLDER module version — replace it wholly so a code
+    # update ships with reinstall.bat (marker presence alone must not skip,
+    # or code updates would never reach a patched install).
     if MARKER in html:
-        print("[skin-manager] [SKIP] already injected")
+        import re
+        m = re.search(r'<script id="zcode-skin-ui">(.*?)</script>', html, re.S)
+        old_payload = m.group(1) if m else ""
+        if old_payload.strip() == js.strip():
+            print("[skin-manager] [SKIP] already injected (payload identical)")
+            return
+        tag = MARKER + "\n" + js + "\n</script>"
+        new_html = (
+            html[: html.find(MARKER)] + tag +
+            html[html.find("</script>", html.find(MARKER)) + len("</script>"):]
+        )
+        html_path.write_text(new_html, encoding="utf-8", newline="")
+        print("[skin-manager] replaced older ui_skin.js block (module updated)")
         return
 
     if TAG_END not in html:
@@ -63,7 +78,7 @@ def main() -> None:
     if new_html == html:
         fail("replace produced no change")
 
-    html_path.write_text(new_html, encoding="utf-8")
+    html_path.write_text(new_html, encoding="utf-8", newline="")
     print(f"[skin-manager] injected ui_skin.js into {html_path}")
 
 

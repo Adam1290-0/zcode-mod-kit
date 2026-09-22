@@ -187,6 +187,61 @@ def find_zcode_root():
     return None
 
 
+# ZCode versions the shipped modules were verified against (kept in sync with
+# each module's own compatibility table; bumped when modules are re-validated)
+VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1"}
+
+
+def read_asar_version(asar_path):
+    """Read the app version out of package.json inside the asar header.
+    Header layout: uint32 leading(4) + uint32 json_len(4) + JSON payload."""
+    try:
+        import struct
+        with open(asar_path, "rb") as f:
+            f.seek(4)
+            jl = struct.unpack("<I", f.read(4))[0]
+            if not (0 < jl < 20_000_000):
+                return None
+            hdr = f.read(jl).decode("utf-8", "replace")
+        i = hdr.find('{"files"')
+        if i < 0:
+            i = hdr.find("{")
+        pkg = json.loads(hdr[i:].rstrip("\0"))
+        files = pkg.get("files", {})
+        pj = files.get("package.json")
+        if not pj or "offset" not in pj:
+            return None
+        base = 8 + jl
+        base += (4 - (base % 4)) % 4
+        with open(asar_path, "rb") as f:
+            f.seek(base + int(pj["offset"]))
+            content = f.read(min(int(pj["size"]), 65536)).decode("utf-8", "replace")
+        return json.loads(content).get("version")
+    except Exception:
+        return None
+
+
+def version_compat_check(asar_path, cfg):
+    """Warn when the running ZCode version was never verified with these
+    modules. Returns the version string (or '?')."""
+    ver = read_asar_version(asar_path)
+    if not ver:
+        print(c(YELLOW, "[VERSION] could not read the ZCode version from the asar"))
+        return "?"
+    last_seen = cfg.get("last_zcode_version")
+    if last_seen and last_seen != ver:
+        print(c(CYAN, f"[VERSION] ZCode was updated ({last_seen} -> {ver}) - "
+                      f"patches were wiped; reinstalling everything"))
+    if ver in VERIFIED_VERSIONS:
+        print(c(GREEN, f"[VERSION] ZCode {ver} - verified compatible"))
+    else:
+        print(c(YELLOW, f"[VERSION] ZCode {ver} - NOT in the verified list "
+                        f"({', '.join(sorted(VERIFIED_VERSIONS))})"))
+        print(c(YELLOW, "          modules are patched best-effort and may misbehave; "
+                        "if anything breaks, please open an issue"))
+    return ver
+
+
 def zcode_running():
     try:
         out = subprocess.run(
@@ -323,6 +378,7 @@ def apply_modules(mods, selection, paths, interactive):
         return 1
 
     cfg = load_config()
+    apply_modules._zcode_version = version_compat_check(paths.asar, cfg)
 
     # ---- backup: kitbak is the CLEAN pre-patch baseline. Refresh it only when
     # the current asar carries no kit markers (= official update wiped the
@@ -433,6 +489,8 @@ def apply_modules(mods, selection, paths, interactive):
     # way: an official update produces an asar WITHOUT our injected markers,
     # checked below by marker presence.
     cfg["selections"] = selection
+    cfg["last_zcode_version"] = getattr(apply_modules, "_zcode_version", None) or \
+        read_asar_version(paths.asar)
     # refresh the clean baseline when the current asar is un-patched
     # (official update) — detected by absence of our markers in its head
     try:

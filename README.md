@@ -156,7 +156,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 ### v1.0.0
 
 - 🎉 首个版本：5 模块整合（route-override / pin / skin-manager / account-switcher / snapshot-kill）
-- 🖥️ 赛博朋克风格交互菜单：上下选模块、左右切换注入、回车执行
+- 🖥️ 交互菜单：上下选模块、左右切换注入、回车执行
 - 💾 记忆上次选择，`reinstall.bat` 一键重打（ZCode 更新后的日常操作）
 - ⚡ 一次解包 + 一次重打包覆盖全部模块
 - ✅ 已验证适配 ZCode 3.12.2 / 3.12.3

@@ -1,7 +1,7 @@
 {
   "slug": "skin-manager",
   "display_name": "皮肤管理",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "壁纸/透明度/氛围灯/加载图标/用量状态条联动",
   "order": 30,
   "targets": ["asar"],

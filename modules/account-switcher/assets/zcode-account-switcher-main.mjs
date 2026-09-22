@@ -225,14 +225,29 @@ async function restoreAux(aux) {
 }
 
 // ---- HTTP helpers ---------------------------------------------------------
+// Auth token: generated at patch time, written next to the profiles and baked
+// into the patched renderer. Requests without it are rejected — random
+// webpages (even sandboxed iframes sending Origin: null) can neither read
+// account profiles nor force a switch/delete. No CORS headers are emitted:
+// the renderer is the only legitimate client and same-origin/file fetches
+// don't need them.
+const TOKEN_FILE = path.join(PROFILES_DIR, 'auth-token');
+const AUTH_TOKEN = (() => {
+  try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch { return ''; }
+})();
+function tokenOk(req) {
+  if (!AUTH_TOKEN) return false;
+  const got = String(req.headers['x-zca-token'] || '');
+  const a = Buffer.from(AUTH_TOKEN);
+  const b = Buffer.from(got);
+  if (a.length !== b.length || a.length === 0) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 function json(res, code, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(code, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Private-Network': 'true',
     'Content-Length': Buffer.byteLength(body),
   });
   res.end(body);
@@ -376,13 +391,14 @@ const DIAG = []; // last renderer diagnostic reports (POST /api/diag)
 function startServer() {
   const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Private-Network': 'true',
-      });
+      res.writeHead(204);
       res.end();
+      return;
+    }
+    // Auth gate: every request (including diag — it reports scan results that
+    // hint at the installed setup) must carry the patch-time token.
+    if (!tokenOk(req)) {
+      json(res, 401, { ok: false, error: 'unauthorized' });
       return;
     }
     const url = (req.url || '').split('?')[0];

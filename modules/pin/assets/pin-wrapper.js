@@ -29,11 +29,26 @@ else {
   } catch (_) {}
 }
 
+// Log rotation: append-only would grow forever in a long-lived ZCode process,
+// so check the size every N appends and truncate past 1MB (startup check below
+// stays as the boot-time catch-all). A process-multiplied log() makes counting
+// approximate per process — good enough for a hygiene cap.
+const LOG_CAP = 1048576;
+const LOG_CHECK_EVERY = 4096;
+let logWrites = 0;
+function rotateIfNeeded() {
+  logWrites++;
+  if (logWrites % LOG_CHECK_EVERY !== 0) return;
+  try {
+    if (fs.statSync(LOG_PATH).size > LOG_CAP) fs.writeFileSync(LOG_PATH, "");
+  } catch (_) {}
+}
 function log(msg) {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.appendFileSync(LOG_PATH,
       new Date().toISOString() + " [" + process.pid + "] " + msg + "\n");
+    rotateIfNeeded();
   } catch (_) { /* logging must never break requests */ }
 }
 const _logLast = {};
@@ -43,9 +58,9 @@ function throttleLog(msg) { // can be called per request: keep the log readable
   _logLast[msg] = now;
   log(msg);
 }
-try {
+try { // boot-time catch-all (rotation above covers long-lived processes)
   const st = fs.statSync(LOG_PATH);
-  if (st.size > 1048576) fs.writeFileSync(LOG_PATH, "");
+  if (st.size > LOG_CAP) fs.writeFileSync(LOG_PATH, "");
 } catch (_) {}
 
 // Session identity comes from the request itself (ZCode sets these headers on

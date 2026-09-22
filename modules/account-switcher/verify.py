@@ -71,6 +71,11 @@ def main() -> int:
         elif html.find("</script>", idx) < 0:
             log("FAIL renderer block has no closing </script>")
             ok = False
+        elif "__ZCA_TOKEN__" in html[idx:]:
+            # placeholder not replaced = token baking never ran; the server
+            # would reject every request and the UI would be dead
+            log("FAIL renderer block still carries the token placeholder")
+            ok = False
 
     if ok:
         log("verify OK")

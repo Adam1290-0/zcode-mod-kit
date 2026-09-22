@@ -323,15 +323,30 @@ def apply_modules(mods, selection, paths, interactive):
         return 1
 
     cfg = load_config()
-    last_size = cfg.get("last_patched_size")
 
-    # ---- backup (refresh only when ZCode updated = clean asar) ------------
+    # ---- backup: kitbak is the CLEAN pre-patch baseline. Refresh it only when
+    # the current asar carries no kit markers (= official update wiped the
+    # patches). Comparing sizes cannot work: the packed asar size always
+    # differs from the clean one, so a size-based check would refresh the
+    # backup on every run and overwrite the baseline with a patched asar.
+    def asar_is_clean():
+        try:
+            with open(paths.asar, "rb") as _f:
+                _head = _f.read(4000)
+            return b"/*zro*/" not in _head and b"zcode-account-switcher-main.mjs" not in _head
+        except OSError:
+            return False
+
     if not paths.asar_bak.exists():
         print(c(CYAN, "[BACKUP] creating app.asar.kitbak"))
         shutil.copy2(paths.asar, paths.asar_bak)
-    elif last_size is not None and paths.asar.stat().st_size != last_size:
-        print(c(CYAN, "[BACKUP] asar size changed (ZCode update) - refreshing kitbak"))
+    elif asar_is_clean():
+        print(c(CYAN, "[BACKUP] current asar has no kit markers (ZCode update) - refreshing kitbak"))
         shutil.copy2(paths.asar, paths.asar_bak)
+        if paths.cjs_bak.exists() and paths.cjs.exists():
+            with open(paths.cjs, "rb") as _f:
+                if b"/*zro*/" not in _f.read(600):
+                    shutil.copy2(paths.cjs, paths.cjs_bak)
     if not paths.unpacked_bak.exists() and paths.unpacked.exists():
         shutil.copytree(paths.unpacked, paths.unpacked_bak)
     cjs_needed = any("zcode-cjs" in m.get("targets", []) and selection.get(m["slug"], True)
@@ -410,8 +425,24 @@ def apply_modules(mods, selection, paths, interactive):
     shutil.rmtree(paths.work, ignore_errors=True)
 
     # ---- remember selection ------------------------------------------------
+    # NOTE: last_patched_size intentionally NOT updated. The kitbak is the
+    # CLEAN pre-patch baseline; the packed asar size (recorded nowhere) always
+    # differs from it, so comparing against the packed size would refresh the
+    # backup on every run and eventually overwrite the clean baseline with a
+    # patched asar (breaking rollback). ZCode updates are detected the other
+    # way: an official update produces an asar WITHOUT our injected markers,
+    # checked below by marker presence.
     cfg["selections"] = selection
-    cfg["last_patched_size"] = paths.asar.stat().st_size
+    # refresh the clean baseline when the current asar is un-patched
+    # (official update) — detected by absence of our markers in its head
+    try:
+        with open(paths.asar, "rb") as _f:
+            _head = _f.read(4000)
+        if b"/*zro*/" not in _head and b"zcode-account-switcher-main.mjs" not in _head:
+            print(c(CYAN, "[BACKUP] current asar has no kit markers (ZCode update) - refreshing kitbak"))
+            shutil.copy2(paths.asar, paths.asar_bak)
+    except OSError:
+        pass
     save_config(cfg)
 
     # ---- summary -------------------------------------------------------------

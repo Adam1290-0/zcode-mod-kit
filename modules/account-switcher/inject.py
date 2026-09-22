@@ -13,6 +13,7 @@ Surgical: only touches this module's files and injection blocks.
 Line endings of the two edited files are preserved exactly (newline='').
 """
 import argparse
+import secrets
 import sys
 from pathlib import Path
 
@@ -21,6 +22,7 @@ MAIN_IMPORT_CORE = 'import("./zcode-account-switcher-main.mjs").catch(()=>{});'
 MAIN_MARKER = 'zcode-account-switcher-main.mjs'
 RENDERER_MARKER = '<script id="zcode-account-switcher">'
 RENDERER_ID = 'id="zcode-account-switcher"'
+TOKEN_PLACEHOLDER = "__ZCA_TOKEN__"
 
 
 def log(msg: str) -> None:
@@ -69,16 +71,39 @@ def main() -> int:
             log(f"[ERROR] asset missing: {assets / a}")
             return 1
 
-    # Idempotent gate: all markers already present -> skip.
+    # Idempotent gate: all markers present AND the renderer block is the
+    # token-aware build (it carries the x-zca-token header logic) -> skip.
+    # An older install's block has neither the placeholder nor the header
+    # string, so marker presence alone cannot distinguish "already baked"
+    # from "pre-token legacy block" — the header string is the discriminator,
+    # and a legacy block must FALL THROUGH to the redeploy path below.
     entry_src = read_raw(main_entry)
     html = read_raw(html_path)
-    if MAIN_MARKER in entry_src and RENDERER_ID in html and module_dst.exists():
+    ri = html.find(RENDERER_ID)
+    token_aware = ri >= 0 and "x-zca-token" in html[ri:] and "__ZCA_TOKEN__" not in html[ri:]
+    if MAIN_MARKER in entry_src and token_aware and module_dst.exists():
         log("[SKIP] already injected")
         return 0
+
+    # redeploy path (fresh install or pre-token upgrade): regenerate everything
 
     # 1. copy main-process module
     write_raw(module_dst, read_raw(assets / "zcode-account-switcher-main.mjs"))
     log(f"copied main module -> out/main/{module_dst.name}")
+
+    # 1b. auth token: generate (first time) and bake into the renderer copy;
+    # the main-process server reads the same file at boot.
+    token_file = Path.home() / ".zcode" / "account-profiles" / "auth-token"
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    if token_file.exists() and token_file.read_text(encoding="utf-8").strip():
+        token = token_file.read_text(encoding="utf-8").strip()
+        log("auth token reused")
+    else:
+        token = secrets.token_hex(32)
+        token_file.write_text(token, encoding="utf-8")
+        log(f"auth token generated -> {token_file}")
+    module_src = read_raw(assets / "zcode-account-switcher-main.mjs")
+    write_raw(module_dst, module_src)
 
     # 2. prepend dynamic import (tolerates other modules' prepended lines)
     if MAIN_MARKER not in entry_src:
@@ -89,8 +114,8 @@ def main() -> int:
     else:
         log("main entry already patched")
 
-    # 3. renderer script block before </body>
-    if RENDERER_ID in html:
+    # 3. renderer script block before </body>, token baked in
+    if RENDERER_ID in html and token_aware:
         log("renderer script already present")
     else:
         body_idx = html.find("</body>")
@@ -99,9 +124,29 @@ def main() -> int:
             return 1
         nl = detect_nl(body_idx, html)
         js = read_raw(assets / "ui_accounts.js")
+        if TOKEN_PLACEHOLDER not in js:
+            log(f"[ERROR] ui_accounts.js missing token placeholder {TOKEN_PLACEHOLDER}")
+            return 1
+        js = js.replace(TOKEN_PLACEHOLDER, repr(token))
         block = nl.join([RENDERER_MARKER, js, "</script>"]) + nl
-        write_raw(html_path, html[:body_idx] + block + html[body_idx:])
-        log("renderer script injected before </body>")
+        if RENDERER_ID in html:
+            # pre-token block present: replace it wholly so the token lands
+            start = html.find(RENDERER_MARKER)
+            end = html.find("</script>", start)
+            if end < 0:
+                log("[ERROR] existing renderer block has no closing </script>")
+                return 1
+            end += len("</script>")
+            if html[end:end + 2] == "\r\n":
+                end += 2
+            elif html[end:end + 1] == "\n":
+                end += 1
+            html = html[:start] + block + html[end:]
+            log("renderer block replaced (token baked in)")
+        else:
+            html = html[:body_idx] + block + html[body_idx:]
+            log("renderer script injected before </body> (token baked in)")
+        write_raw(html_path, html)
 
     log("inject complete")
     return 0

@@ -1,9 +1,15 @@
 {
   "slug": "pin",
   "display_name": "上下文固定 Pin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "把关键约束钉住，每轮自动注入模型上下文最顶部；会话隔离、子 agent 排除、过时钩子",
   "order": 20,
-  "targets": ["zcode-cjs", "asar"],
-  "markers": ["zpin", "zcode-pin-ui"]
+  "targets": [
+    "zcode-cjs",
+    "asar"
+  ],
+  "markers": [
+    "zpin",
+    "zcode-pin-ui"
+  ]
 }

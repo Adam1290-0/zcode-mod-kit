@@ -12,6 +12,11 @@
 
   var API = 'http://127.0.0.1:27890';
   var SCAN_MS = 1500;
+  // Token baked in at patch time (literal replacement of the placeholder by
+  // inject.py). Every API request carries it; the main-process server rejects
+  // requests without it — random webpages (even sandboxed iframes) cannot
+  // read profiles or force a switch.
+  var TOKEN = '__ZCA_TOKEN__';
 
   // ------------------------------------------------------------------ styles
   function injectStyle() {
@@ -81,9 +86,11 @@
 
   // -------------------------------------------------------------- api helpers
   function api(path, opts) {
+    var headers = { 'Content-Type': 'application/json' };
+    if (TOKEN && TOKEN.indexOf('__ZCA_TOKEN__') < 0) headers['x-zca-token'] = TOKEN;
     return fetch(API + path, Object.assign({
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
+      headers: headers
     }, opts || {})).then(function (r) { return r.json(); })
       .catch(function (e) { return { ok: false, error: '无法连接切换服务: ' + e.message }; });
   }

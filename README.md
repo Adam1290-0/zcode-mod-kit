@@ -17,7 +17,7 @@
 | skin-manager | ZCode Skin Manager v2.1.0（含状态条联动） | [zcode-skin-manager](https://github.com/Adam1290-0/zcode-skin-manager) |
 | account-switcher | ZCode Account Switcher v1.0.2 | [zcode-account-switcher](https://github.com/Adam1290-0/zcode-account-switcher) |
 | snapshot-kill | ZCode 安全补丁 v1.1.0 | —（并入整合包） |
-| usage-bar | zcode-token-usage-statusbar | [xhwxt/zcode-token-usage-statusbar](https://github.com/xhwxt/zcode-token-usage-statusbar)（第三方，集成维护） |
+| usage-bar | zcode-token-usage-statusbar | [xhwxt/zcode-token-usage-statusbar](https://github.com/xhwxt/zcode-token-usage-statusbar)（第三方，**MIT 允许二开**，集成维护并保留原许可） |
 
 ---
 
@@ -57,6 +57,8 @@
 - `ZCODE_SNAPSHOT_ALLOW=1` 环境变量恢复官方行为；构建中子系统被移除时自动 no-op
 
 ### 📊 usage-bar — Token 用量悬浮条
+
+> 基于 [xhwxt/zcode-token-usage-statusbar](https://github.com/xhwxt/zcode-token-usage-statusbar)（MIT，Copyright (c) 2026 xhwx）二次开发——原项目许可明确允许修改与再分发；本包将其重打包为目录模式模块（安装器重写），overlay/loader/泵逻辑未改。版权与许可声明见 [LICENSE](LICENSE) 第三方组件段。
 
 - 每个窗口常驻悬浮条：今日 token / 请求 / 工具调用 / 会话用量实时显示（常驻本地 python 泵驱动）
 - 子代理面板、汇总聚合、历史查询；mtime 热更新免重启

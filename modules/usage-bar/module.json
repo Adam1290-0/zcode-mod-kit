@@ -5,5 +5,12 @@
   "description": "zusage statusbar: per-window overlay with today's token / request / tool-call counts, fed by a resident python pump",
   "order": 60,
   "targets": ["asar"],
-  "markers": ["zusage"]
+  "markers": ["zusage"],
+  "attribution": {
+    "derived_from": "xhwxt/zcode-token-usage-statusbar",
+    "url": "https://github.com/xhwxt/zcode-token-usage-statusbar",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 xhwx",
+    "modification": "repackaged as a zcode-mod-kit directory-mode module (installer rewritten); overlay/loader/pump logic unchanged"
+  }
 }

@@ -271,9 +271,27 @@ function startServer() {
       } catch (e) { return json(500, { error: String(e && e.message || e) }); }
     });
   });
+  var retryTimer = null;
   server.on("error", function (e) {
-    if (e.code === "EADDRINUSE") log("pin server: port busy, skip");
-    else log("pin server error: " + e.message);
+    if (e.code === "EADDRINUSE") {
+      // Another process owns the port. If it later dies (crash, update), the
+      // UI would be left without any server. Retry on a timer so one of the
+      // surviving processes takes over instead of skipping forever.
+      if (!retryTimer) {
+        log("pin server: port busy, retrying every 3s");
+        retryTimer = setInterval(function () {
+          try {
+            server.listen(SERVER_PORT, "127.0.0.1", function () {
+              clearInterval(retryTimer);
+              retryTimer = null;
+              log("pin server on 127.0.0.1:" + SERVER_PORT + " (recovered)");
+            });
+          } catch (err) { /* try again next tick */ }
+        }, 3000);
+      }
+    } else {
+      log("pin server error: " + e.message);
+    }
   });
   server.listen(SERVER_PORT, "127.0.0.1", function () { log("pin server on 127.0.0.1:" + SERVER_PORT); });
   // Production (token from file) may unref: ZCode's main process has plenty of

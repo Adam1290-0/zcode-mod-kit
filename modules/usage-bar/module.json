@@ -1,0 +1,9 @@
+{
+  "slug": "usage-bar",
+  "display_name": "Token 用量悬浮条",
+  "version": "0.9.0",
+  "description": "zusage statusbar: per-window overlay with today's token / request / tool-call counts, fed by a resident python pump",
+  "order": 60,
+  "targets": ["asar"],
+  "markers": ["zusage"]
+}

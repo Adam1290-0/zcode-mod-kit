@@ -254,6 +254,11 @@ def main():
         cjs = make_tree(work)
         cycle("snapshot-kill", "snapshot-kill", work, None)
 
+        # ---- 9. usage-bar ---------------------------------------------------
+        work = tmp / "usage" / "unpacked"
+        cjs = make_tree(work)
+        cycle("usage-bar", "usage-bar", work, None)
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

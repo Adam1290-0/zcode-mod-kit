@@ -335,9 +335,26 @@ function startConfigServer() {
     }
     res.writeHead(404); res.end();
   });
+  let cfgRetryTimer = null;
   server.on("error", (e) => {
-    if (e.code === "EADDRINUSE") log("config server: port busy (another app-server owns it), skip");
-    else log("config server error: " + e.message);
+    if (e.code === "EADDRINUSE") {
+      // Port owned by another process: retry so this one can take over
+      // if the owner dies (same recovery contract as the pin wrapper).
+      if (!cfgRetryTimer) {
+        log("config server: port busy, retrying every 3s");
+        cfgRetryTimer = setInterval(() => {
+          try {
+            server.listen(CONFIG_SERVER_PORT, "127.0.0.1", () => {
+              clearInterval(cfgRetryTimer);
+              cfgRetryTimer = null;
+              log("config server on 127.0.0.1:" + CONFIG_SERVER_PORT + " (recovered)");
+            });
+          } catch (err) { /* retry next tick */ }
+        }, 3000);
+      }
+    } else {
+      log("config server error: " + e.message);
+    }
   });
   server.listen(CONFIG_SERVER_PORT, "127.0.0.1", () =>
     log("config server on 127.0.0.1:" + CONFIG_SERVER_PORT));

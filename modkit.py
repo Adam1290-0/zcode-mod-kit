@@ -46,6 +46,7 @@ LABELS = {
     "skin-manager": "SKIN   wallpaper / opacity / ambient edge",
     "account-switcher": "ACCT   one-click multi-account switch",
     "snapshot-kill": "SNAP   repo-snapshot upload kill-switch",
+    "usage-bar": "USAGE  token usage statusbar (zusage)",
 }
 ORDER_HINT = {
     "route-override": "cjs chain first, pin wraps outside it",
@@ -53,6 +54,7 @@ ORDER_HINT = {
     "skin-manager": "renderer-only, order-independent",
     "account-switcher": "main + renderer, order-independent",
     "snapshot-kill": "static gate in out/host/index.js",
+    "usage-bar": "one import line at the tail of out/main/index.js",
 }
 
 BANNER = r"""

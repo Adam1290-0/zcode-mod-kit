@@ -38,6 +38,21 @@ BOLD = "\x1b[1m"
 BG_CYAN = "\x1b[46m\x1b[30m"
 BG_GREEN = "\x1b[42m\x1b[30m"
 BG_RED = "\x1b[41m\x1b[30m"
+# neon 256-color set for gradients
+N_PINK = "\x1b[38;5;213m"
+N_PURPLE = "\x1b[38;5;135m"
+N_CYAN = "\x1b[38;5;51m"
+N_BLUE = "\x1b[38;5;39m"
+N_YELLOW = "\x1b[38;5;220m"
+N_ORANGE = "\x1b[38;5;208m"
+
+AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
+AD_INTRO = [
+    ("SHARELLM.NET", N_PINK + BOLD),
+    ("  AI model sharing platform - massive models, one subscription", N_CYAN),
+    ("  Claude / GPT / Gemini / DeepSeek and more, ready to use", N_CYAN),
+    ("  Sign up via the invite link below and start in minutes", DIM),
+]
 
 # module slug -> menu label (ASCII only)
 LABELS = {
@@ -57,21 +72,62 @@ ORDER_HINT = {
     "usage-bar": "one import line at the tail of out/main/index.js",
 }
 
-BANNER = r"""
- ____ ____ ___  ____  _____    __  __ ___  ____    _  ___ ___ _____
-|__  |  _ \_  ||_  ||  _  |  |  \/  | __||  _ \  | |/ / |_ _|_   _|
-  / /| |_| / /__| |__| |_| |  | |\/| |  _|| | | | | ' /   | |  | |
- /_/ |____/___/|____/|____/   |_|  |_|___||_| |_| |_|\_\ |___| |_|
-"""
+BANNER_LINES = [
+    r" ____ ____ ___  ____  _____    __  __ ___  ____    _  ___ ___ _____ ",
+    r"|__  |  _ \_  ||_  ||  _  |  |  \/  | __||  _ \  | |/ / |_ _|_   _|",
+    r"  / /| |_| / /__| |__| |_| |  | |\/| |  _|| | | | | ' /   | |  | |  ",
+    r" /_/ |____/___/|____/|____/   |_|  |_|___||_| |_| |_|\_\ |___| |_|  ",
+]
+# neon gradient across the banner: pink -> purple -> cyan -> blue
+GRADIENT = [N_PINK, N_PURPLE, N_CYAN, N_BLUE]
 
 
 def c(code, text):
     return code + text + RESET
 
 
+def gradient_banner():
+    """Each banner line in its own neon shade."""
+    return "\n" + "\n".join(c(GRADIENT[i], ln) for i, ln in enumerate(BANNER_LINES))
+
+
+def clickable(url, text):
+    """OSC 8 hyperlink; terminals that don't support it just show the text."""
+    return "\x1b]8;;" + url + "\x1b\\" + c(N_YELLOW + BOLD, text) + "\x1b]8;;\x1b\\"
+
+
+def print_ad_block(clickable_link=False):
+    """sharellm ad block; footer form carries an OSC 8 clickable link."""
+    print(c(N_PURPLE, "  +" + "-" * 66 + "+"))
+    for text, color in AD_INTRO:
+        print("  " + c(DIM, "|") + " " + c(color, text.ljust(62)) + " " + c(DIM, "|"))
+    if clickable_link:
+        print("  " + c(DIM, "|") + " " +
+              clickable(AD_URL, AD_URL).ljust(62 + len(AD_URL)) + " " + c(DIM, "|"))
+        print("  " + c(DIM, "|") + " " +
+              c(MAGENTA, "press O to open it in your browser right now".ljust(62)) + " " + c(DIM, "|"))
+    else:
+        print("  " + c(DIM, "|") + " " +
+              c(DIM, ("invite: " + AD_URL)[:62].ljust(62)) + " " + c(DIM, "|"))
+    print(c(N_PURPLE, "  +" + "-" * 66 + "+"))
+
+
+def try_open_ad():
+    """Open the ad link in the default browser (wait screens suggest it)."""
+    try:
+        import os
+        os.startfile(AD_URL)
+        print(c(GREEN, "  opening " + AD_URL))
+        return True
+    except Exception:
+        print(c(RED, "  could not open browser; link: " + AD_URL))
+        return False
+
+
 def vt_on():
     """Enable ANSI escape processing on legacy cmd consoles."""
     try:
+        import os
         os.system("")
     except Exception:
         pass
@@ -148,20 +204,51 @@ def zcode_running():
 
 _spinner_frames = "|/-\\"
 _spinner_stop = threading.Event()
+# bouncing-ball frames (霓虹色交替), cycled while a long step runs
+BALL_FRAMES = [
+    ("(●" + " " * 8 + ")", N_PINK),
+    ("(" + " " + "●" + " " * 6 + ")", N_PURPLE),
+    ("(" + " " * 3 + "●" + " " * 4 + ")", N_CYAN),
+    ("(" + " " * 5 + "●" + " " * 2 + ")", N_BLUE),
+    ("(" + " " * 7 + "●" + ")", N_PURPLE),
+    ("(" + " " * 5 + "●" + " " * 2 + ")", N_CYAN),
+    ("(" + " " * 3 + "●" + " " * 4 + ")", N_BLUE),
+    ("(" + " " + "●" + " " * 6 + ")", N_PINK),
+]
+SPINNER_TIPS = [
+    "tip: press R anytime to re-apply your last selection in one shot",
+    "tip: runtime files live in ~/.zcode/plugins - the kit folder is movable",
+    "tip: OFF on an injected module uninjects it surgically",
+    "tip: each ZCode update wipes patches - reinstall.bat brings them all back",
+]
 
 
 def _spin(label):
+    """Neon bouncing ball + elapsed time + rotating tips, on one line."""
     start = time.time()
     i = 0
+    tip_i = 0
     while not _spinner_stop.is_set():
         elapsed = int(time.time() - start)
-        sys.stdout.write("\r    " + c(CYAN, "[" + _spinner_frames[i % 4] + "]") +
-                         " " + label + " " + c(DIM, f"{elapsed}s"))
+        ball, color = BALL_FRAMES[i % len(BALL_FRAMES)]
+        tip = SPINNER_TIPS[(elapsed // 8) % len(SPINNER_TIPS)]
+        line = ("\r    " + c(color + BOLD, ball) + " " + c(BOLD, label) +
+                " " + c(DIM, f"{elapsed:3d}s") + "   " + c(DIM, tip) + "  ")
+        sys.stdout.write(line)
         sys.stdout.flush()
         i += 1
-        time.sleep(0.15)
-    sys.stdout.write("\r" + " " * 60 + "\r")
+        time.sleep(0.12)
+    sys.stdout.write("\r" + " " * 110 + "\r")
     sys.stdout.flush()
+
+
+def wait_screen(first_line):
+    """Full idle screen shown while a 2-3 min asar step runs:
+    animated ball + sharellm ad block with a clickable link."""
+    _spinner_stop.clear()
+    t = threading.Thread(target=_spin, args=(first_line,), daemon=True)
+    t.start()
+    return t
 
 
 def run_asar(args, cwd, label):
@@ -255,9 +342,13 @@ def apply_modules(mods, selection, paths, interactive):
     # ---- extract once -------------------------------------------------------
     if paths.work.exists():
         shutil.rmtree(paths.work)
-    print(c(CYAN, "[EXTRACT] unpacking app.asar (2-3 min)..."))
+    print(c(CYAN, "[EXTRACT]") + " " + c(BOLD, "unpacking app.asar - this takes 2-3 minutes"))
+    print_ad_block()
+    wt = wait_screen("unpacking asar")
     rc, out = run_asar(f'extract "{paths.asar}" "{paths.work}"', paths.asar.parent,
                        "unpacking asar")
+    _spinner_stop.set()
+    wt.join(timeout=1)
     if rc != 0:
         print(c(RED, "[ERROR] extract failed:") + "\n" + out[-2000:])
         return 1
@@ -295,12 +386,17 @@ def apply_modules(mods, selection, paths, interactive):
         results.append((slug, "INJECT" if want else "REMOVE"))
 
     # ---- repack once ---------------------------------------------------------
-    print(c(CYAN, "[PACK] repacking app.asar (2-3 min)..."))
+    print()
+    print(c(CYAN, "[PACK]") + " " + c(BOLD, "repacking app.asar - this takes 2-3 minutes"))
+    print_ad_block()
+    wt = wait_screen("repacking asar")
     if paths.unpacked.exists():
         shutil.rmtree(paths.unpacked)
     rc, out = run_asar(
         f'pack "{paths.work}" "{paths.asar}" --unpack "*.{{node,dll,exe}}"',
         paths.asar.parent, "repacking asar")
+    _spinner_stop.set()
+    wt.join(timeout=1)
     if rc != 0:
         print(c(RED, "[ERROR] pack failed - restoring backup"))
         shutil.copy2(paths.asar_bak, paths.asar)
@@ -330,6 +426,8 @@ def apply_modules(mods, selection, paths, interactive):
     print()
     print(c(DIM, "  ZCode was updated? Just re-run reinstall.bat -"))
     print(c(DIM, "  it re-applies this exact selection in one shot."))
+    print()
+    print_ad_block(clickable_link=True)
     return 0
 
 
@@ -347,12 +445,12 @@ def uninstall_all(mods, paths):
 
 def render(mods, selection, idx, config_sel):
     clear()
-    print(c(CYAN, BANNER))
+    print(gradient_banner())
     print(c(MAGENTA, "  zcode-mod-kit  ::  modular patcher console"))
-    print(c(YELLOW, "  =" * 36))
+    print(c(N_CYAN, "  " + "=" * 36))
     print()
     print(c(DIM, "  UP/DOWN pick module    LEFT/RIGHT toggle    ENTER apply"))
-    print(c(DIM, "  A all-on    N all-off    R reinstall-last    Q quit"))
+    print(c(DIM, "  A all-on    N all-off    R reinstall-last    O sponsor    Q quit"))
     print()
     for i, mod in enumerate(mods):
         slug = mod["slug"]
@@ -368,6 +466,7 @@ def render(mods, selection, idx, config_sel):
     sel = mods[idx]["slug"]
     print("  " + c(CYAN, "> ") + c(BOLD, ORDER_HINT.get(sel, "")))
     print()
+    print_ad_block(clickable_link=True)
 
 
 def menu(mods):
@@ -401,6 +500,9 @@ def menu(mods):
                 return selection
             elif key == "reinstall":
                 return config_sel or selection
+            elif key == "openad":
+                try_open_ad()
+                time.sleep(1.5)
     finally:
         show_cursor()
 
@@ -425,6 +527,8 @@ def get_key():
         return "allon"
     if low == "n":
         return "alloff"
+    if low == "o":
+        return "openad"
     if ch == "\x1b":
         return "esc"
     return None

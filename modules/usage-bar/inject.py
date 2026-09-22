@@ -71,6 +71,17 @@ def main() -> int:
     cfg = RUNTIME_DIR / "config.json"
     if not cfg.exists() and (assets / "config.example.json").exists():
         shutil.copy2(assets / "config.example.json", cfg)
+        # the example ships a placeholder python_path; a bogus path makes every
+        # resident spawn fail until the pump is judged unstable — default to the
+        # interpreter running this injector instead (guaranteed to exist)
+        try:
+            import json
+            c = json.loads(cfg.read_text(encoding="utf-8"))
+            c["python_path"] = sys.executable
+            cfg.write_text(json.dumps(c, ensure_ascii=False, indent=2), encoding="utf-8")
+            log(f"config seeded with python_path={sys.executable}")
+        except Exception:
+            pass
     log(f"runtime deployed -> {RUNTIME_DIR}")
 
     data = entry.read_bytes()

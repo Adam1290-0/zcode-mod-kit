@@ -35,12 +35,19 @@ def require_line_for(wrapper_path: Path) -> bytes:
 
 
 def deploy_wrapper(wrapper_js: Path) -> Path:
-    """Copy the wrapper to the persistent runtime dir so zcode.cjs never
-    depends on this module directory staying in place."""
+    """Deploy the wrapper AND its same-directory dependency (pin-core.js,
+    required at wrapper top via require(path.join(__dirname,...))) to the
+    persistent runtime dir, so zcode.cjs never depends on this module
+    directory staying in place. Missing the core kills the whole module with
+    a silent MODULE_NOT_FOUND swallowed by the try/catch require line."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     dst = DATA_DIR / wrapper_js.name
     shutil.copy2(wrapper_js, dst)
-    log("deployed wrapper -> " + str(dst))
+    for dep in ("pin-core.js",):
+        dep_src = wrapper_js.parent / dep
+        if dep_src.exists():
+            shutil.copy2(dep_src, DATA_DIR / dep)
+    log("deployed wrapper + deps -> " + str(DATA_DIR))
     return dst
 
 

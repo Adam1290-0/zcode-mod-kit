@@ -201,6 +201,8 @@ def main():
               b".zcode/plugins/pin/pin-wrapper.js" in data)
         check("combo: pin token in runtime dir",
               (Path(env["USERPROFILE"]) / ".zcode/plugins/pin/auth-token").exists())
+        check("combo: pin-core.js deployed with wrapper",
+              (Path(env["USERPROFILE"]) / ".zcode/plugins/pin/pin-core.js").exists())
         rc, _ = run(module("pin") / "verify.py",
                     ["--dir", str(work), "--zcode-cjs", str(cjs)], env)
         check("combo: pin verify", rc == 0)
@@ -258,6 +260,17 @@ def main():
         work = tmp / "usage" / "unpacked"
         cjs = make_tree(work)
         cycle("usage-bar", "usage-bar", work, None)
+        # config seeded with a WORKING python_path (not the example placeholder)
+        seed_cfg = Path(tmp) / "usage-home-dummy"  # actual home is work.parent/"home"
+        # cycle() isolates USERPROFILE to tmp/<case>/home; usage-bar case home:
+        usage_home = tmp / "usage" / "home"
+        seeded = usage_home / ".zcode" / "plugins" / "usage-bar" / "config.json"
+        if seeded.exists():
+            import json as _json
+            v = _json.loads(seeded.read_text(encoding="utf-8")).get("python_path", "")
+            check("usage-bar: config python_path seeded real", v and "path\\to" not in v, v)
+        else:
+            check("usage-bar: config python_path seeded real", False, "no config.json")
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

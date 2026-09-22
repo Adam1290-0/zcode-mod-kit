@@ -14,7 +14,7 @@
 |---|---|---|
 | route-override | ZCode Route Override v1.0.3 | [zcode-route-override](https://github.com/Adam1290-0/zcode-route-override) |
 | pin | ZCode Pin v1.0.0 | [zcode-pin](https://github.com/Adam1290-0/zcode-pin) |
-| skin-manager | ZCode Skin Manager v2.0.12 | [zcode-skin-manager](https://github.com/Adam1290-0/zcode-skin-manager) |
+| skin-manager | ZCode Skin Manager v2.1.0（含状态条联动） | [zcode-skin-manager](https://github.com/Adam1290-0/zcode-skin-manager) |
 | account-switcher | ZCode Account Switcher v1.0.2 | [zcode-account-switcher](https://github.com/Adam1290-0/zcode-account-switcher) |
 | snapshot-kill | ZCode 安全补丁 v1.1.0 | —（并入整合包） |
 | usage-bar | zcode-token-usage-statusbar | [xhwxt/zcode-token-usage-statusbar](https://github.com/xhwxt/zcode-token-usage-statusbar)（第三方，集成维护） |

@@ -9,6 +9,7 @@ with zero interaction.
 ASCII-only output (cmd codepage safe). Python stdlib only.
 """
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -244,9 +245,14 @@ def version_compat_check(asar_path, cfg):
 
 def zcode_running():
     try:
+        # tasklist prints localized (GBK) headers on Chinese Windows; a bare
+        # text=True decodes as utf-8 and the reader thread crashes on non-ASCII
+        # bytes -> empty stdout -> "not running" every time. errors="replace"
+        # keeps the ASCII process name ("ZCode.exe") intact either way.
         out = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq ZCode.exe"],
             capture_output=True, text=True, timeout=20,
+            encoding="utf-8", errors="replace",
         )
         return "ZCode.exe" in out.stdout
     except Exception:
@@ -425,18 +431,40 @@ def _apply_locked(mods, selection, paths, interactive):
     # differs from the clean one, so a size-based check would refresh the
     # backup on every run and overwrite the baseline with a patched asar.
     def asar_is_clean():
+        """True when the asar carries no kit injections. CANNOT use the head
+        bytes: the first hundreds of KB are the asar INDEX (filenames+offsets),
+        which never contains content markers - a head check is always 'clean'
+        and would refresh kitbak on every run (observed 2026-09-22: the
+        post-uninstall pack then overwrote the clean baseline). Parse the
+        header and check out/renderer/index.html content instead."""
         try:
-            with open(paths.asar, "rb") as _f:
-                _head = _f.read(4000)
-            return b"/*zro*/" not in _head and b"zcode-account-switcher-main.mjs" not in _head
-        except OSError:
-            return False
+            import struct
+            with open(paths.asar, "rb") as f:
+                f.seek(4)
+                jl = struct.unpack("<I", f.read(4))[0]
+                if not (0 < jl < 20_000_000):
+                    return False
+                hdr = f.read(jl).decode("utf-8", "replace")
+            pkg = json.loads(hdr[hdr.find("{"):].rstrip("\0"))
+            out_d = pkg.get("files", {}).get("out", {}).get("files", {})
+            rend = out_d.get("renderer", {}).get("files", {})
+            entry = rend.get("index.html")
+            if not entry or "offset" not in entry:
+                return False
+            base = 8 + jl
+            base += (4 - (base % 4)) % 4
+            with open(paths.asar, "rb") as f:
+                f.seek(base + int(entry["offset"]))
+                html = f.read(int(entry["size"])).decode("utf-8", "replace")
+            return "zcode-skin-ui" not in html and "zcode-account-switcher" not in html
+        except Exception:
+            return False  # unreadable = treat as patched, never destroy the backup
 
     if not paths.asar_bak.exists():
         print(c(CYAN, "[BACKUP] creating app.asar.kitbak"))
         shutil.copy2(paths.asar, paths.asar_bak)
     elif asar_is_clean():
-        print(c(CYAN, "[BACKUP] current asar has no kit markers (ZCode update) - refreshing kitbak"))
+        print(c(CYAN, "[BACKUP] current asar has no kit injections (ZCode update) - refreshing kitbak"))
         shutil.copy2(paths.asar, paths.asar_bak)
         if paths.cjs_bak.exists() and paths.cjs.exists():
             with open(paths.cjs, "rb") as _f:
@@ -520,26 +548,15 @@ def _apply_locked(mods, selection, paths, interactive):
     shutil.rmtree(paths.work, ignore_errors=True)
 
     # ---- remember selection ------------------------------------------------
-    # NOTE: last_patched_size intentionally NOT updated. The kitbak is the
-    # CLEAN pre-patch baseline; the packed asar size (recorded nowhere) always
-    # differs from it, so comparing against the packed size would refresh the
-    # backup on every run and eventually overwrite the clean baseline with a
-    # patched asar (breaking rollback). ZCode updates are detected the other
-    # way: an official update produces an asar WITHOUT our injected markers,
-    # checked below by marker presence.
+    # NOTE: kitbak is refreshed ONLY in the backup section at the start (via
+    # asar_is_clean()'s header parse). No refresh here: after a pack the asar
+    # always lacks... nothing - but a post-pack check would ever only fire on
+    # a failed inject pass and could overwrite the pre-patch baseline with the
+    # post-run state (observed 2026-09-22: the post-uninstall refresh destroyed
+    # the baseline). Baseline maintenance happens at the START of a run only.
     cfg["selections"] = selection
     cfg["last_zcode_version"] = getattr(apply_modules, "_zcode_version", None) or \
         read_asar_version(paths.asar)
-    # refresh the clean baseline when the current asar is un-patched
-    # (official update) — detected by absence of our markers in its head
-    try:
-        with open(paths.asar, "rb") as _f:
-            _head = _f.read(4000)
-        if b"/*zro*/" not in _head and b"zcode-account-switcher-main.mjs" not in _head:
-            print(c(CYAN, "[BACKUP] current asar has no kit markers (ZCode update) - refreshing kitbak"))
-            shutil.copy2(paths.asar, paths.asar_bak)
-    except OSError:
-        pass
     save_config(cfg)
 
     # ---- summary -------------------------------------------------------------

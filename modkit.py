@@ -367,6 +367,45 @@ def module_cmd(mod, work_dir, cjs_path, script_name):
 
 def apply_modules(mods, selection, paths, interactive):
     """selection: slug -> bool (True = inject, False = skip/remove)."""
+    # Single-instance lock: two overlapping install runs each generate their
+    # own auth token, then one packs token-A into the asar while the other
+    # leaves token-B on disk — the service then rejects the renderer forever
+    # (observed 2026-09-22). O_CREAT|O_EXCL is atomic on Windows.
+    lock_path = paths.asar.parent / ".modkit-lock"
+    lock_fd = None
+    try:
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        lock_fd_holder(lock_fd, lock_path)
+    except FileExistsError:
+        print(c(RED, "[ERROR] another mod-kit run is already in progress (found "
+                    f"{lock_path}). If you are sure nothing is running, delete that file."))
+        return 1
+    try:
+        return _apply_locked(mods, selection, paths, interactive)
+    finally:
+        cleanup_lock(lock_path)
+
+
+_LOCK_STATE = {}
+
+def lock_fd_holder(fd, path):
+    """Keep the lock file descriptor open for the process lifetime."""
+    _LOCK_STATE["fd"] = fd
+    _LOCK_STATE["path"] = path
+
+
+def cleanup_lock(path):
+    try:
+        fd = _LOCK_STATE.pop("fd", None)
+        if fd is not None:
+            os.close(fd)
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _apply_locked(mods, selection, paths, interactive):
+    """selection: slug -> bool (True = inject, False = skip/remove)."""
     if not mods:
         print(c(RED, "[ERROR] no modules found under modules/"))
         return 1

@@ -1,5 +1,11 @@
 # 交接文档 — skin-manager 模块（sess_1842e23a）
 
+> **v1.1 同步（2026-09-22 主整合窗口）**：
+> 1. **`inject.py` 已改**：不再"marker 在即 SKIP"——现比较注入块 payload 与当前 assets/ui_skin.js，不同 = 判定旧版本整块替换（`replaced older ui_skin.js block`），相同 = `[SKIP] (payload identical)`。**以后功能更新直接改 assets + 升 version + 通知整合窗口即可，重打自动生效，无需先卸载**。
+> 2. **灯效问题已结**：用户补丁已重打（3.14.1，六模块全在），menu 开关问题根因是面板只在 init 构建一次（异步挂载的状态条晚于皮肤脚本）——已修为点开面板时重建（v2.1.1，asr 里的 ui_skin.js 已是新版）。**如灯效仍有异常，等你拿用户截图再排查**。
+> 3. 版本号请以整合包 module.json 为准（当前 2.1.1）；你方 git 的 `72e7c90` v2.1.0 与整合包的关系：整合包包含它且多一个面板重建修复。
+> 4. ZCode 版本识别已加进整合器（读 asar package.json，版本不在已验证清单会警告）——你们无感知，无需动作。
+
 目标：未来皮肤功能更新由本窗口完成 → 产物提交到整合包 `zcode-mod-kit/modules/skin-manager/`，由主整合窗口发布。**本窗口不再处理任何 GitHub 内容（push/Release/Issue 均由主整合窗口负责）。**
 
 ## 1. 主整合窗口对你们产物的核对结论

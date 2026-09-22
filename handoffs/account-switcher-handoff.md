@@ -1,5 +1,13 @@
 # 交接文档 — account-switcher 模块（sess_186ebe95）
 
+> **v1.1 同步（2026-09-22 主整合窗口）**：本模块已加入 **token 鉴权机制**（安全审查 P1 修复），更新要点——
+> 1. `assets/ui_accounts.js`：`var TOKEN = '__ZCA_TOKEN__'` 占位符 + `api()` 每请求带 `x-zca-token` 头
+> 2. `assets/zcode-account-switcher-main.mjs`：读 `~/.zcode/account-profiles/auth-token`（patch 时生成）+ `timingSafeEqual` 校验 + **全端点 401 闸门（含 /api/diag）**；CORS `*` 与 Allow-Private-Network 头已全部删除（攻击场景：恶意网页可读账号身份/强制切换/删光 profile 快照）
+> 3. `inject.py`：生成/复用 auth-token + 烘焙占位符；幂等门判据是块内含 `x-zca-token` 字符串（marker 存在性无法区分旧版无 token 块）；旧块整体替换重烘焙
+> 4. `verify.py`：块内 `__ZCA_TOKEN__` 残留 = FAIL
+> 5. **以后更新 ui_accounts.js 时不要删 TOKEN 逻辑**；版本升号基数从 1.0.2 起算下一次为 1.0.3
+> 6. 你们此前提出的接口疑点已核实：route-override 的广告互斥让位检测确实基于 `data-zca-ad-model`，但当前你方 assets 的横幅用的是 `zca-model-ad` class——互斥让位的让步方是 route-override（它查 `data-zca-ad-model`），所以横幅属性不需要改；如有冲突实测再议。
+
 目标：未来账号切换功能更新由本窗口完成 → 产物提交到整合包 `zcode-mod-kit/modules/account-switcher/`，由主整合窗口发布。**本窗口不再处理任何 GitHub 内容（push/Release/Issue 均由主整合窗口负责）。**
 
 ## 1. 主整合窗口修复了你们产物的以下内容（请同步知晓，勿回滚）

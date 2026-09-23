@@ -190,7 +190,9 @@ def find_zcode_root():
 
 # ZCode versions the shipped modules were verified against (kept in sync with
 # each module's own compatibility table; bumped when modules are re-validated)
-VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1"}
+# 3.14.3 (2026-09-23): four injection targets unchanged; snapshot-kill degrades
+# gracefully (RepoSnapshotSidecarService subsystem removed upstream).
+VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3"}
 
 
 def read_asar_version(asar_path):
@@ -243,6 +245,71 @@ def version_compat_check(asar_path, cfg):
     return ver
 
 
+# Content markers each module leaves in the PACKED asar. Used to decide whether
+# the current asar is a clean pre-patch baseline before refreshing kitbak. A
+# partial patch (any single module) must count as NOT clean, or refreshing the
+# backup would overwrite the clean baseline with a patched asar.
+ASAR_RENDERER_MARKERS = ("zcode-skin-ui", "zcode-account-switcher",
+                         "zcode-route-override-ui", "zcode-pin-ui")
+ASAR_HOST_MARKER = "zcode-snapshot-kill-switch"   # snapshot-kill -> out/host/index.js
+ASAR_MAIN_MARKER = "[zusage]"                     # usage-bar     -> out/main/index.js
+
+
+def asar_is_clean(asar_path):
+    """True only when the asar carries NONE of the six modules' injections.
+
+    CANNOT use the head bytes: the first hundreds of KB are the asar INDEX
+    (filenames+offsets), which never contains content markers - a head check is
+    always 'clean' and would refresh kitbak on every run (observed 2026-09-22:
+    the post-uninstall pack then overwrote the clean baseline). Parse the header
+    and read the actual patched files.
+
+    Every module marker is checked, across all three patched files. The old
+    check looked at skin+account only, so a pin-only (or route- / snapshot- /
+    usage-only) install read as 'clean' and refreshing kitbak overwrote the
+    baseline with a patched asar - the same data-loss class, narrower trigger.
+
+    Unreadable -> False (treat as patched; never destroy the backup)."""
+    try:
+        import struct
+        with open(asar_path, "rb") as f:
+            f.seek(4)
+            jl = struct.unpack("<I", f.read(4))[0]
+            if not (0 < jl < 20_000_000):
+                return False
+            hdr = f.read(jl).decode("utf-8", "replace")
+        pkg = json.loads(hdr[hdr.find("{"):].rstrip("\0"))
+        base = 8 + jl
+        base += (4 - (base % 4)) % 4
+        files = pkg.get("files", {})
+
+        def read_entry(*parts):
+            node = files
+            for p in parts[:-1]:
+                node = node.get(p, {}).get("files", {})
+            entry = node.get(parts[-1])
+            if not entry or "offset" not in entry:
+                return None
+            with open(asar_path, "rb") as f:
+                f.seek(base + int(entry["offset"]))
+                return f.read(int(entry["size"])).decode("utf-8", "replace")
+
+        html = read_entry("out", "renderer", "index.html")
+        if html is None:
+            return False  # can't verify -> treat as patched, never destroy backup
+        if any(m in html for m in ASAR_RENDERER_MARKERS):
+            return False
+        host = read_entry("out", "host", "index.js")
+        if host and ASAR_HOST_MARKER in host:
+            return False
+        main = read_entry("out", "main", "index.js")
+        if main and ASAR_MAIN_MARKER in main:
+            return False
+        return True
+    except Exception:
+        return False  # unreadable = treat as patched, never destroy the backup
+
+
 def zcode_running():
     try:
         # tasklist prints localized (GBK) headers on Chinese Windows; a bare
@@ -265,17 +332,17 @@ def zcode_running():
 
 _spinner_frames = "|/-\\"
 _spinner_stop = threading.Event()
-# bouncing-ball frames (霓虹色交替), cycled while a long step runs
-BALL_FRAMES = [
-    ("(●" + " " * 8 + ")", N_PINK),
-    ("(" + " " + "●" + " " * 6 + ")", N_PURPLE),
-    ("(" + " " * 3 + "●" + " " * 4 + ")", N_CYAN),
-    ("(" + " " * 5 + "●" + " " * 2 + ")", N_BLUE),
-    ("(" + " " * 7 + "●" + ")", N_PURPLE),
-    ("(" + " " * 5 + "●" + " " * 2 + ")", N_CYAN),
-    ("(" + " " * 3 + "●" + " " * 4 + ")", N_BLUE),
-    ("(" + " " + "●" + " " * 6 + ")", N_PINK),
-]
+# bouncing-ball track: one bounce = half a sine period across a 15-char lane
+_BALL_TRACK_W = 15
+
+
+def _ball_positions():
+    """23 precomputed lane positions for one full bounce cycle."""
+    import math
+    return [int(round(math.sin(math.pi * k / 22) * (_BALL_TRACK_W - 1)))
+            for k in range(23)]
+
+
 SPINNER_TIPS = [
     "tip: press R anytime to re-apply your last selection in one shot",
     "tip: runtime files live in ~/.zcode/plugins - the kit folder is movable",
@@ -285,20 +352,32 @@ SPINNER_TIPS = [
 
 
 def _spin(label):
-    """Neon bouncing ball + elapsed time + rotating tips, on one line."""
+    """Neon bouncing ball with a fading trail + elapsed time + rotating tips."""
     start = time.time()
+    track = _ball_positions()
+    n = len(track)
     i = 0
-    tip_i = 0
+    trail = []
     while not _spinner_stop.is_set():
         elapsed = int(time.time() - start)
-        ball, color = BALL_FRAMES[i % len(BALL_FRAMES)]
+        pos = track[i % n]
+        trail.append(pos)
+        if len(trail) > 4:
+            trail.pop(0)
+        lane = [" "] * _BALL_TRACK_W
+        for p in trail[:-1]:
+            lane[p] = "\u00b7"  # fading trail dots behind the ball
+        ball_color = GRADIENT[(i // 5) % len(GRADIENT)]
         tip = SPINNER_TIPS[(elapsed // 8) % len(SPINNER_TIPS)]
-        line = ("\r    " + c(color + BOLD, ball) + " " + c(BOLD, label) +
-                " " + c(DIM, f"{elapsed:3d}s") + "   " + c(DIM, tip) + "  ")
+        line = ("\r    [" + c(N_PURPLE + DIM, "".join(lane[:pos])) +
+                c(ball_color + BOLD, "\u25cf") +
+                c(N_PURPLE + DIM, "".join(lane[pos + 1:]) + "]") +
+                " " + c(BOLD, label) + " " + c(DIM, f"{elapsed:3d}s") +
+                "   " + c(DIM, tip) + "  ")
         sys.stdout.write(line)
         sys.stdout.flush()
         i += 1
-        time.sleep(0.12)
+        time.sleep(0.06)
     sys.stdout.write("\r" + " " * 110 + "\r")
     sys.stdout.flush()
 
@@ -426,44 +505,14 @@ def _apply_locked(mods, selection, paths, interactive):
     apply_modules._zcode_version = version_compat_check(paths.asar, cfg)
 
     # ---- backup: kitbak is the CLEAN pre-patch baseline. Refresh it only when
-    # the current asar carries no kit markers (= official update wiped the
-    # patches). Comparing sizes cannot work: the packed asar size always
-    # differs from the clean one, so a size-based check would refresh the
-    # backup on every run and overwrite the baseline with a patched asar.
-    def asar_is_clean():
-        """True when the asar carries no kit injections. CANNOT use the head
-        bytes: the first hundreds of KB are the asar INDEX (filenames+offsets),
-        which never contains content markers - a head check is always 'clean'
-        and would refresh kitbak on every run (observed 2026-09-22: the
-        post-uninstall pack then overwrote the clean baseline). Parse the
-        header and check out/renderer/index.html content instead."""
-        try:
-            import struct
-            with open(paths.asar, "rb") as f:
-                f.seek(4)
-                jl = struct.unpack("<I", f.read(4))[0]
-                if not (0 < jl < 20_000_000):
-                    return False
-                hdr = f.read(jl).decode("utf-8", "replace")
-            pkg = json.loads(hdr[hdr.find("{"):].rstrip("\0"))
-            out_d = pkg.get("files", {}).get("out", {}).get("files", {})
-            rend = out_d.get("renderer", {}).get("files", {})
-            entry = rend.get("index.html")
-            if not entry or "offset" not in entry:
-                return False
-            base = 8 + jl
-            base += (4 - (base % 4)) % 4
-            with open(paths.asar, "rb") as f:
-                f.seek(base + int(entry["offset"]))
-                html = f.read(int(entry["size"])).decode("utf-8", "replace")
-            return "zcode-skin-ui" not in html and "zcode-account-switcher" not in html
-        except Exception:
-            return False  # unreadable = treat as patched, never destroy the backup
-
+    # the current asar carries NO kit markers (= an official ZCode update wiped
+    # the patches). asar_is_clean() parses the header and checks every module's
+    # marker; a partial patch counts as NOT clean, so refreshing can never
+    # overwrite the baseline with a patched asar (the 2026-09-22 data-loss bug).
     if not paths.asar_bak.exists():
         print(c(CYAN, "[BACKUP] creating app.asar.kitbak"))
         shutil.copy2(paths.asar, paths.asar_bak)
-    elif asar_is_clean():
+    elif asar_is_clean(paths.asar):
         print(c(CYAN, "[BACKUP] current asar has no kit injections (ZCode update) - refreshing kitbak"))
         shutil.copy2(paths.asar, paths.asar_bak)
         if paths.cjs_bak.exists() and paths.cjs.exists():

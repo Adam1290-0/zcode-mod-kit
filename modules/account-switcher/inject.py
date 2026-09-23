@@ -13,6 +13,7 @@ Surgical: only touches this module's files and injection blocks.
 Line endings of the two edited files are preserved exactly (newline='').
 """
 import argparse
+import re
 import secrets
 import sys
 from pathlib import Path
@@ -71,16 +72,25 @@ def main() -> int:
             log(f"[ERROR] asset missing: {assets / a}")
             return 1
 
-    # Idempotent gate: all markers present AND the renderer block is the
-    # token-aware build (it carries the x-zca-token header logic) -> skip.
-    # An older install's block has neither the placeholder nor the header
-    # string, so marker presence alone cannot distinguish "already baked"
-    # from "pre-token legacy block" — the header string is the discriminator,
-    # and a legacy block must FALL THROUGH to the redeploy path below.
+    # Idempotent gate: all markers present AND the renderer block is a
+    # token-aware build -> skip. The discriminator is the strict baked-token
+    # line, not mere marker presence: an older pre-token block has neither
+    # the placeholder nor the header, and a syntactically broken bake
+    # (e.g. doubled quotes around the token, 2026-09-23 incident) also
+    # parses in no browser and kills the whole block — every such case must
+    # FALL THROUGH to the redeploy path below so the block is replaced.
     entry_src = read_raw(main_entry)
     html = read_raw(html_path)
     ri = html.find(RENDERER_ID)
-    token_aware = ri >= 0 and "x-zca-token" in html[ri:] and "__ZCA_TOKEN__" not in html[ri:]
+    bend = html.find("</script>", ri) if ri >= 0 else -1
+    tail = html[ri:bend] if ri >= 0 and bend >= 0 else ""
+    token_aware = (
+        ri >= 0
+        and bend >= 0
+        and "x-zca-token" in tail
+        and "__ZCA_TOKEN__" not in tail
+        and re.search(r"var TOKEN = '[0-9a-f]{64}'", tail) is not None
+    )
     if MAIN_MARKER in entry_src and token_aware and module_dst.exists():
         log("[SKIP] already injected")
         return 0
@@ -127,7 +137,11 @@ def main() -> int:
         if TOKEN_PLACEHOLDER not in js:
             log(f"[ERROR] ui_accounts.js missing token placeholder {TOKEN_PLACEHOLDER}")
             return 1
-        js = js.replace(TOKEN_PLACEHOLDER, repr(token))
+        # Bake the token WITHOUT repr(): the placeholder already sits inside
+        # single quotes in ui_accounts.js, and repr() would emit a second
+        # quote pair (''tok''), a JS syntax error that silently killed the
+        # whole block (2026-09-23 incident).
+        js = js.replace(TOKEN_PLACEHOLDER, token)
         block = nl.join([RENDERER_MARKER, js, "</script>"]) + nl
         if RENDERER_ID in html:
             # pre-token block present: replace it wholly so the token lands

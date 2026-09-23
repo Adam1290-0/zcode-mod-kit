@@ -21,7 +21,7 @@ WRAPPER_MARKER = b"/*zpin*/"
 RO_ANCHOR = b"/*zro*/"
 USE_STRICT_ANCHOR = b'"use strict";'
 UI_MARKER = '<script id="zcode-pin-ui">'
-TOKEN_PLACEHOLDER = "'__ZPIN_TOKEN__'"
+TOKEN_PLACEHOLDER = "__ZPIN_TOKEN__"  # bare form: replace with the raw hex token
 DATA_DIR = Path(os.path.expanduser("~/.zcode/plugins/pin"))
 
 
@@ -116,7 +116,14 @@ def inject_ui(asar_root: Path, ui_js: Path) -> bool:
         log("ERROR ui_pin.js missing token placeholder " + TOKEN_PLACEHOLDER)
         return False
     token = load_token()
-    js = js.replace(TOKEN_PLACEHOLDER, repr(token))
+    # bare token replacement (same hard rule as account-switcher v1.0.3):
+    # repr() would leak Python literal syntax into JS — the placeholder in
+    # ui_pin.js is quoted ('__ZPIN_TOKEN__'), so substituting the raw hex keeps
+    # the string literal intact.
+    js = js.replace("'" + TOKEN_PLACEHOLDER + "'", "'" + token + "'")
+    if TOKEN_PLACEHOLDER in js:  # unquoted variant must never remain either
+        log("ERROR unreplaced token placeholder remains in ui_pin.js")
+        return False
     tag = UI_MARKER + "\n" + js + "\n</script>"
     html = html_path.read_text(encoding="utf-8", newline="")
     idx = html.find(UI_MARKER)

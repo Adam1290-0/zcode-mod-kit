@@ -64,9 +64,9 @@ def make_tree(root: Path, html=MOCK_HTML, main=MOCK_MAIN_LF, cjs=MOCK_CJS,
     (root / "out" / "renderer").mkdir(parents=True)
     (root / "out" / "main").mkdir(parents=True)
     (root / "out" / "host").mkdir(parents=True)
-    (root / "out" / "renderer" / "index.html").write_text(html, encoding="utf-8")
+    (root / "out" / "renderer" / "index.html").write_text(html, encoding="utf-8", newline="")
     (root / "out" / "main" / "index.js").write_text(main, encoding="utf-8", newline="")
-    (root / "out" / "host" / "index.js").write_text(host, encoding="utf-8")
+    (root / "out" / "host" / "index.js").write_text(host, encoding="utf-8", newline="")
     cjs_p = root.parent / "zcode.cjs"
     cjs_p.write_bytes(cjs)
     return cjs_p

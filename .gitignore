@@ -1,3 +1,5 @@
 __pycache__/
 config.json
 *.log
+# scratch trees from ZCode upgrade adaptation checks (1GB+); never commit
+.upgrade-check/

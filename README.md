@@ -100,7 +100,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 6 模块 | 3.12.2 / 3.12.3（3.11.2 及更早见各模块历史 README） |
+| 全部 6 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3（3.11.2 及更早见各模块历史 README） |
 
 > ⚠️ This is a **community third-party patch suite**. It modifies ZCode's `app.asar` and `zcode.cjs`, is **not affiliated with ZCode**, and every module can break on a ZCode update. Read [DISCLAIMER.md](DISCLAIMER.md) before use. ZCode is closed-source and updates frequently — if your version is not listed, do not patch; open an issue with your version number.
 
@@ -141,11 +141,22 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 6 模块 | 3.12.2 / 3.12.3 |
+| 全部 6 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.1.0
+
+- ✅ 适配 ZCode **3.14.3**（四注入目标与各模块锚点全部核验；snapshot-kill 因上游移除快照子系统自动降级 no-op）
+- 🐛 修复 account-switcher / pin 的 token 烘焙坏块（`repr()` 二次套引号生成非法 JS，整块脚本静默失效、菜单不显示）；改为裸 token 替换，`verify.py` 新增 `node --check` 语法校验，旧坏块重装时自愈
+- 🐛 修复 `asar_is_clean` 只查 2 个标记的误判（pin/route/snapshot/usage 单模块安装会被当"干净"并覆盖 kitbak 干净基线）——现校验全部 6 模块标记，异常一律 fail-closed
+- 🐛 修复 route-override 重装丢 token（replace 路径补 `ZRO_TOKEN` prologue）与 verify 假阳性
+- 🔒 脱敏：移除硬编码的第三方 Install-Id，改为运行时生成；token 比较改常量时间
+- 🎨 install.bat 新增作者信息、彩色横幅与弹球开场动画；打包/解包等待动画升级为拖尾弹跳球
+- 🧪 新增引擎级回归测试（12 项），三套测试共 114 项
+- 📄 新增 [UPGRADING.md](UPGRADING.md)：ZCode 每次更新后的多窗口协作适配流程
 
 ### v1.0.1
 

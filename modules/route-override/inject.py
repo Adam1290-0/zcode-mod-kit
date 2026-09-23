@@ -21,6 +21,7 @@ Notes:
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import sys
@@ -166,13 +167,19 @@ def inject_renderer(out_dir: Path, ui_js: Path, token: str) -> bool:
 
     html = html_path.read_text(encoding="utf-8")
     js = ui_js.read_text(encoding="utf-8")
+    # The token prologue MUST be part of EVERY block, fresh or replaced.
+    # ui_route_override.js reads the global ZRO_TOKEN and the config server
+    # rejects requests that lack it. The replace path (upgrading an older block)
+    # used to drop the prologue, leaving the UI to send an empty token so every
+    # call 401s until a full uninstall/reinstall (observed via reinstall.bat).
+    prologue = "var ZRO_TOKEN=" + json.dumps(token) + ";\n"
     if RENDERER_MARKER in html:
         # Replace the whole previous block so the latest ui_route_override.js
-        # always wins (idempotent, no stale copies).
+        # (and a fresh token prologue) always wins (idempotent, no stale copies).
         end = html.find("</script>", html.find(RENDERER_MARKER))
         if end < 0:
             raise RuntimeError("renderer marker found but no closing </script>")
-        tag = RENDERER_MARKER + "\n" + js + "\n</script>"
+        tag = RENDERER_MARKER + "\n" + prologue + js + "\n</script>"
         html = html[: html.find(RENDERER_MARKER)] + tag + html[end + len("</script>"):]
         log("renderer script updated (replaced previous block)")
         write_raw(html_path, html)
@@ -180,7 +187,6 @@ def inject_renderer(out_dir: Path, ui_js: Path, token: str) -> bool:
 
     if "</body>" not in html:
         raise RuntimeError("</body> not found in renderer/index.html")
-    prologue = "var ZRO_TOKEN=" + json.dumps(token) + ";\n"
     tag = RENDERER_MARKER + "\n" + prologue + js + "\n</script>"
     html = html.replace("</body>", tag + "\n</body>", 1)
     write_raw(html_path, html)
@@ -243,13 +249,21 @@ def verify(out_dir: Path, cjs_path: Path | None) -> int:
         else:
             end = html.find("</script>", idx)
             block = html[idx:end] if end > idx else ""
-            for feat in ("ZRO_TOKEN", "findEditPanel", "mode: 'upsert'",
+            # Token must be the actual baked prologue assignment, not just the
+            # identifier: ui_route_override.js references ZRO_TOKEN in its body,
+            # so a bare '"ZRO_TOKEN" in block' check passed even when the prologue
+            # (var ZRO_TOKEN="<hex>") was dropped on a block replace - the UI then
+            # sent an empty token and every call 401d. Require the literal form.
+            if not re.search(r'var ZRO_TOKEN="[0-9a-f]{64}"', block):
+                log('renderer: baked token prologue missing (var ZRO_TOKEN="<hex>")')
+                ok = False
+            for feat in ("findEditPanel", "mode: 'upsert'",
                          "MutationObserver", "zro-model-ad", "assertAdBanner"):
                 if feat not in block:
                     log(f"renderer: feature marker missing: {feat}")
                     ok = False
             if ok:
-                log("renderer: UI block OK (token + findEditPanel + upsert "
+                log("renderer: UI block OK (baked token + findEditPanel + upsert "
                     "+ MutationObserver + ad banner)")
 
     if ok:

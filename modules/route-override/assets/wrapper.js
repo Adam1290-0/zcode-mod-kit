@@ -8,6 +8,7 @@ const path = require("path");
 const net = require("net");
 const tls = require("tls");
 const http = require("http");
+const crypto = require("crypto");
 const { Readable } = require("stream");
 
 const DIR = __dirname;
@@ -24,12 +25,35 @@ try {
 } catch (_) { AUTH_TOKEN = ""; }
 if (!AUTH_TOKEN) log("WARN: auth-token missing - config server rejects all requests until it exists");
 
+function tokenEqual(a, b) { // constant-time; equalize length first (matches pin/account)
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+}
+
 // Client headers forwarded as-is when rebuilding (auth + protocol essentials).
 // Everything else (x-client-language, x-device-mid, ZCode UA, ...) is dropped.
 const PASSTHROUGH_HEADERS = new Set([
   "content-type", "accept", "authorization", "x-api-key",
   "anthropic-version", "anthropic-beta",
 ]);
+
+// Per-install OpenSquilla identity. Generated once and persisted next to the
+// wrapper so this install keeps a stable Install-Id, instead of shipping one
+// hardcoded set (which would leak the author's identifiers into a public repo
+// and make every user share the same identity). Session/turn/execution ids are
+// ephemeral and minted fresh on each load.
+function opensquillaInstallId() {
+  const idFile = path.join(DIR, "opensquilla-install-id");
+  try {
+    const v = fs.readFileSync(idFile, "utf8").trim();
+    if (/^[0-9a-f]{32}$/.test(v)) return v;
+  } catch (_) { /* not created yet */ }
+  const v = crypto.randomBytes(16).toString("hex");
+  try { fs.writeFileSync(idFile, v); } catch (_) { /* best effort */ }
+  return v;
+}
+const OS_INSTALL_ID = opensquillaInstallId();
 
 // Identity presets verified against a relay provider (2026-09-09):
 // claude-code set -> 200; bare UA -> 401 unauthorized client detected.
@@ -58,10 +82,10 @@ const PRESETS = {
     "user-agent": "python-httpx/0.28.1",
     "HTTP-Referer": "https://opensquilla.ai",
     "X-Title": "OpenSquilla",
-    "X-OpenSquilla-Install-Id": "c6871993bb7f49cbbc5f2a1b9ce4c4c7",
-    "X-OpenSquilla-Session-Id": "2911df9c-568a-4675-bc10-2063a8a4c71e",
-    "X-OpenSquilla-Turn-Id": "1069678b-ca92-4cbc-83c6-26e53fc44e91",
-    "X-OpenSquilla-Execution-Id": "8602d858-324f-4f34-a884-dda3e1842e1f",
+    "X-OpenSquilla-Install-Id": OS_INSTALL_ID,
+    "X-OpenSquilla-Session-Id": crypto.randomUUID(),
+    "X-OpenSquilla-Turn-Id": crypto.randomUUID(),
+    "X-OpenSquilla-Execution-Id": crypto.randomUUID(),
     "X-OpenSquilla-Call-Kind": "agent.chat",
   },
 };
@@ -140,7 +164,7 @@ function buildHeaders(srcHeaders, route) {
   // instead of failing the whole turn.
   for (const k of Object.keys(out)) {
     if (typeof out[k] === "string" && !/^[\x00-\xff]*$/.test(out[k])) {
-      log("WARN: header '" + k + "' dropped - value contains non-ASCII characters (HTTP forbids it)");
+      throttleLog("WARN: header '" + k + "' dropped - value contains non-ASCII characters (HTTP forbids it)");
       delete out[k];
     }
   }
@@ -250,7 +274,7 @@ if (typeof originalFetch === "function" && !globalThis.__zcodeRouteOverride) {
       }
       return await tunnelFetch(new URL(url), method, headers, body, signal, route.proxy);
     } catch (e) {
-      log("fetch error: " + (e && e.message));
+      throttleLog("fetch error: " + (e && e.message));
       throw e;
     }
   };
@@ -277,7 +301,7 @@ function startConfigServer() {
     // Auth: the token is embedded in the patched renderer and kept in a local
     // file next to this wrapper. Local users can read it (same trust level),
     // but a random webpage cannot - this is the load-bearing wall.
-    if (!AUTH_TOKEN || req.headers["x-zro-token"] !== AUTH_TOKEN) {
+    if (!AUTH_TOKEN || !tokenEqual(req.headers["x-zro-token"], AUTH_TOKEN)) {
       res.writeHead(401); return res.end("unauthorized");
     }
     // Defense in depth: browsers always send a real Origin on cross-site

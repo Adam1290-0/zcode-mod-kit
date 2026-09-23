@@ -122,9 +122,9 @@ def make_tree(root, html=MOCK_HTML, main=MOCK_MAIN_LF, cjs=MOCK_CJS, host=MOCK_H
     (root / "out" / "renderer").mkdir(parents=True, exist_ok=True)
     (root / "out" / "main").mkdir(parents=True, exist_ok=True)
     (root / "out" / "host").mkdir(parents=True, exist_ok=True)
-    (root / "out" / "renderer" / "index.html").write_text(html, encoding="utf-8")
+    (root / "out" / "renderer" / "index.html").write_text(html, encoding="utf-8", newline="")
     (root / "out" / "main" / "index.js").write_text(main, encoding="utf-8", newline="")
-    (root / "out" / "host" / "index.js").write_text(host, encoding="utf-8")
+    (root / "out" / "host" / "index.js").write_text(host, encoding="utf-8", newline="")
     cjs_p = root.parent / "zcode.cjs"
     cjs_p.write_bytes(cjs)
     return cjs_p
@@ -140,7 +140,7 @@ def test_missing_targets():
         # account-switcher: no out/main/index.js
         w = tmp / "acct" / "unpacked"
         (w / "out" / "renderer").mkdir(parents=True)
-        (w / "out" / "renderer" / "index.html").write_text(MOCK_HTML, encoding="utf-8")
+        (w / "out" / "renderer" / "index.html").write_text(MOCK_HTML, encoding="utf-8", newline="")
         env = env_for(w)
         rc, out = run(module("account-switcher") / "inject.py",
                       ["--dir", str(w)], env)

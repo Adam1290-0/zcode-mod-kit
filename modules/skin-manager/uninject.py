@@ -40,7 +40,9 @@ def main() -> None:
         # Should be impossible (inject is idempotent), but guard anyway.
         fail(f"expected 1 block, found {n}; aborting without writing")
 
-    html_path.write_text(new_html, encoding="utf-8")
+    # newline="" is mandatory on Windows: default text mode translates \n to
+    # \r\n, which corrupts byte-exact restore (probe confirmed 2026-09-23).
+    html_path.write_text(new_html, encoding="utf-8", newline="")
     print(f"[skin-manager] removed skin block from {html_path}")
 
 

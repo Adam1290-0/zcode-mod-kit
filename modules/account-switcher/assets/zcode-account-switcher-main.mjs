@@ -255,9 +255,10 @@ function tokenOk(req) {
   return crypto.timingSafeEqual(a, b);
 }
 
-function json(res, code, obj) {
+function json(res, cors, code, obj) {
   const body = JSON.stringify(obj);
   res.writeHead(code, {
+    ...cors,
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
   });
@@ -399,36 +400,56 @@ async function handleDelete(body) {
 // ---- server -----------------------------------------------------------------
 const DIAG = []; // last renderer diagnostic reports (POST /api/diag)
 
+// CORS for the patched renderer (file:// sends Origin: null). Newer Electron /
+// Chromium builds block the renderer's fetches to 127.0.0.1 unless the server
+// echoes CORS headers — and the custom x-zca-token header triggers an OPTIONS
+// preflight, which must carry them too. Echoing ONLY the null/absent origin
+// keeps ordinary web pages out; the token still gates access.
+function corsHeaders(req) {
+  const origin = req.headers.origin;
+  const allow = (!origin || origin === 'null') ? (origin || 'null') : '';
+  const h = {
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'content-type, x-zca-token',
+    'Access-Control-Max-Age': '600',
+    Vary: 'Origin',
+    'Access-Control-Allow-Private-Network': 'true',
+  };
+  if (allow) h['Access-Control-Allow-Origin'] = allow;
+  return h;
+}
+
 function startServer() {
   const server = http.createServer(async (req, res) => {
+    const cors = corsHeaders(req);
     if (req.method === 'OPTIONS') {
-      res.writeHead(204);
+      res.writeHead(204, cors);
       res.end();
       return;
     }
     // Auth gate: every request (including diag — it reports scan results that
     // hint at the installed setup) must carry the patch-time token.
     if (!tokenOk(req)) {
-      json(res, 401, { ok: false, error: 'unauthorized' });
+      json(res, cors, 401, { ok: false, error: 'unauthorized' });
       return;
     }
     const url = (req.url || '').split('?')[0];
     try {
       if (req.method === 'GET' && url === '/api/state') {
-        json(res, 200, await buildState());
+        json(res, cors, 200, await buildState());
       } else if (req.method === 'POST' && url === '/api/capture') {
         const r = await handleCapture();
-        json(res, 200, { ...r, state: await buildState() });
+        json(res, cors, 200, { ...r, state: await buildState() });
       } else if (req.method === 'POST' && url === '/api/switch') {
         const r = await handleSwitch(await readBody(req));
-        json(res, 200, r);
+        json(res, cors, 200, r);
         if (r.ok && r.relaunch) scheduleRelaunch();
       } else if (req.method === 'POST' && url === '/api/delete') {
         const r = await handleDelete(await readBody(req));
-        json(res, 200, { ...r, state: await buildState() });
+        json(res, cors, 200, { ...r, state: await buildState() });
       } else if (req.method === 'POST' && url === '/api/remark') {
         const r = await handleRemark(await readBody(req));
-        json(res, 200, { ...r, state: await buildState() });
+        json(res, cors, 200, { ...r, state: await buildState() });
       } else if (req.method === 'POST' && url === '/api/diag') {
         // renderer diagnostics sink; keep the last 40 reports readable via GET
         try {
@@ -436,15 +457,15 @@ function startServer() {
           DIAG.push({ at: new Date().toISOString(), ...(b || {}) });
           if (DIAG.length > 40) DIAG.splice(0, DIAG.length - 40);
         } catch {}
-        json(res, 200, { ok: true });
+        json(res, cors, 200, { ok: true });
       } else if (req.method === 'GET' && url === '/api/diag') {
-        json(res, 200, { ok: true, diag: DIAG });
+        json(res, cors, 200, { ok: true, diag: DIAG });
       } else {
-        json(res, 404, { ok: false, error: 'not found' });
+        json(res, cors, 404, { ok: false, error: 'not found' });
       }
     } catch (e) {
       log('handler error', e);
-      json(res, 500, { ok: false, error: String(e && e.message || e) });
+      json(res, cors, 500, { ok: false, error: String(e && e.message || e) });
     }
   });
 

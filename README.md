@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.2.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -153,6 +153,11 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.2.1
+
+- 🐛 **修复新版 Electron 下渲染层请求被 CORS 预检拦截**（用户实测：账号切换读不到已存凭证、保存报错、请求头设置空白）：account-switcher 与 route-override 的本地服务此前不发 CORS 头，新版 Chromium 收紧跨源/私有网络访问后 file:// 渲染层的 fetch（含自定义头的 OPTIONS 预检）被浏览器直接挡掉。现在正确回显 CORS 头（含 `Access-Control-Allow-Private-Network`），pin 补齐 Private-Network 头。token 鉴权仍然是唯一硬门禁，安全性不变
+- 数据说明：受影响期间磁盘数据全程无损（profiles.json / route-overrides.json 均完好），仅渲染层读不到
 
 ### v1.2.0
 

@@ -1,8 +1,8 @@
 {
   "slug": "account-switcher",
   "display_name": "多账号切换",
-  "version": "1.0.4",
-  "description": "多订阅账号本地快照与一键切换（头像菜单/设置侧栏/模型设置页三处入口，含 aux 登录态快照） | fix: 401 self-heal (re-read auth-token on demand)",
+  "version": "1.0.5",
+  "description": "多订阅账号本地快照与一键切换（头像菜单/设置侧栏/模型设置页三处入口，含 aux 登录态快照） | fix: CORS preflight blocked renderer fetches on newer Electron (echo cors headers incl. Private-Network)",
   "order": 40,
   "targets": [
     "asar"

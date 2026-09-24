@@ -179,6 +179,7 @@ function corsHeaders(req) {
     "access-control-allow-headers": "content-type, x-zpin-token",
     "access-control-max-age": "600",
     "vary": "Origin",
+    "access-control-allow-private-network": "true",
   };
   if (allow) h["access-control-allow-origin"] = allow;
   return h;

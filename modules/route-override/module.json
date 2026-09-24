@@ -1,8 +1,8 @@
 {
   "slug": "route-override",
   "display_name": "请求头与网络路由",
-  "version": "1.0.4",
-  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: 401 self-heal (re-read auth-token on demand)",
+  "version": "1.0.5",
+  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: CORS preflight blocked renderer fetches on newer Electron (echo cors headers incl. Private-Network)",
   "order": 10,
   "targets": [
     "zcode-cjs",

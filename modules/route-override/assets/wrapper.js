@@ -303,31 +303,46 @@ try {
 function startConfigServer() {
   const server = http.createServer((req, res) => {
     const url = (req.url || "").split("?")[0];
+    // CORS for the patched renderer (file:// sends Origin: null). The renderer
+    // is NOT same-origin with 127.0.0.1, and newer Electron/Chromium builds
+    // block its fetches (incl. the OPTIONS preflight the custom x-zro-token
+    // header triggers) unless the server echoes CORS headers. Echoing only the
+    // null/absent origin keeps ordinary web pages out; the token still gates.
+    const cors = (() => {
+      const o = req.headers.origin;
+      const allow = (!o || o === "null") ? (o || "null") : "";
+      const h = {
+        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-headers": "content-type, x-zro-token",
+        "access-control-max-age": "600",
+        "vary": "Origin",
+        "access-control-allow-private-network": "true",
+      };
+      if (allow) h["access-control-allow-origin"] = allow;
+      return h;
+    })();
     // Auth: the token is embedded in the patched renderer and kept in a local
     // file next to this wrapper. Local users can read it (same trust level),
     // but a random webpage cannot - this is the load-bearing wall.
     if ((!AUTH_TOKEN || !tokenEqual(req.headers["x-zro-token"], AUTH_TOKEN)) &&
         (!refreshToken() || !tokenEqual(req.headers["x-zro-token"], AUTH_TOKEN))) {
-      res.writeHead(401); return res.end("unauthorized");
+      res.writeHead(401, cors); return res.end("unauthorized");
     }
     // Defense in depth: browsers always send a real Origin on cross-site
     // requests; the Electron renderer sends null or none.
     const origin = req.headers.origin;
     if (origin && origin !== "null") {
-      res.writeHead(403); return res.end("forbidden origin");
+      res.writeHead(403, cors); return res.end("forbidden origin");
     }
     if (req.headers.host !== "127.0.0.1:" + CONFIG_SERVER_PORT) { // DNS-rebinding guard
-      res.writeHead(403); return res.end("bad host");
+      res.writeHead(403, cors); return res.end("bad host");
     }
-    // No CORS headers on purpose: same-origin fetch from the patched renderer
-    // needs none, and "Access-Control-Allow-Origin: *" would widen the attack
-    // surface for nothing.
-    if (req.method === "OPTIONS") { res.writeHead(204); return res.end(); }
+    if (req.method === "OPTIONS") { res.writeHead(204, cors); return res.end(); }
     if (req.method === "GET" && url === "/api/config") {
       try {
-        res.writeHead(200, { "content-type": "application/json" });
+        res.writeHead(200, { ...cors, "content-type": "application/json" });
         return res.end(fs.readFileSync(CONFIG_PATH, "utf8"));
-      } catch (e) { res.writeHead(500); return res.end(JSON.stringify({ error: e.message })); }
+      } catch (e) { res.writeHead(500, cors); return res.end(JSON.stringify({ error: e.message })); }
     }
     if (req.method === "POST" && url === "/api/config") {
       let body = "";
@@ -354,16 +369,16 @@ function startConfigServer() {
           fs.writeFileSync(tmp, JSON.stringify({ routes }, null, 2));
           fs.renameSync(tmp, CONFIG_PATH);
           loadConfig();
-          res.writeHead(200, { "content-type": "application/json" });
+          res.writeHead(200, { ...cors, "content-type": "application/json" });
           res.end(JSON.stringify({ ok: true, routes: config.routes.length }));
         } catch (e) {
-          res.writeHead(400, { "content-type": "application/json" });
+          res.writeHead(400, { ...cors, "content-type": "application/json" });
           res.end(JSON.stringify({ error: e.message }));
         }
       });
       return;
     }
-    res.writeHead(404); res.end();
+    res.writeHead(404, cors); res.end();
   });
   let cfgRetryTimer = null;
   server.on("error", (e) => {

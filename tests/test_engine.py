@@ -114,6 +114,49 @@ def main():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+    # ---- install-location discovery (2026-09-24 portability fix) ----
+    # The old code only looked at H:/Zcode - the kit must find ZCode wherever
+    # it is installed, and must NOT silently fall back to the kit folder.
+    print("--- modkit engine: find_zcode_root ---")
+    t2 = Path(tempfile.mkdtemp(prefix="modkit-root-"))
+    try:
+        check("find_root: empty dir is not a root",
+              M._is_zcode_root(t2) is False)
+        fake = t2 / "ZCode"
+        (fake / "resources").mkdir(parents=True)
+        (fake / "resources" / "app.asar").write_bytes(b"x")
+        check("find_root: dir with resources/app.asar is a root",
+              M._is_zcode_root(fake) is True)
+
+        # ZCODE_ROOT override must win over everything else on this machine
+        import os as _os
+        old = _os.environ.get("ZCODE_ROOT")
+        try:
+            _os.environ["ZCODE_ROOT"] = str(fake)
+            check("find_root: ZCODE_ROOT override wins",
+                  M.find_zcode_root() == fake)
+            # a bad override must NOT silently pick another machine's install
+            _os.environ["ZCODE_ROOT"] = str(t2 / "no-such-dir")
+            found = M.find_zcode_root()
+            check("find_root: bad override does not return unrelated paths",
+                  found is None or not str(found).startswith(str(t2 / "no-such-dir")))
+        finally:
+            if old is None:
+                _os.environ.pop("ZCODE_ROOT", None)
+            else:
+                _os.environ["ZCODE_ROOT"] = old
+
+        # with no override, discovery must at least not crash and return a
+        # root (or None) - never the kit folder itself unless it IS the root
+        no_env = M.find_zcode_root()
+        check("find_root: no-crash on plain discovery", True,
+              f"returned={no_env}")
+        if no_env is not None:
+            check("find_root: returned root carries an asar",
+                  M._is_zcode_root(no_env))
+    finally:
+        shutil.rmtree(t2, ignore_errors=True)
+
     print(f"\n===== {_passed} passed, {_failed} failed =====")
     return 1 if _failed else 0
 

@@ -72,6 +72,11 @@
 
 **Prerequisites**: Windows 10/11, Python 3, Node.js (`npx`).
 
+The installer locates ZCode automatically (env override `ZCODE_ROOT`, the
+Windows registry, `%LOCALAPPDATA%\Programs`, Program Files, drive roots). If
+it can't find your install, either set `ZCODE_ROOT` to your ZCode folder, or
+copy the kit into the ZCode folder and run `install.bat` from there.
+
 1. **Fully quit ZCode** (right-click the tray icon → Quit, not just closing the window)
 2. Double-click `install.bat`
 3. Menu appears: Up/Down to pick a module, Left/Right (or Space) to toggle **ON / OFF**, Enter to apply
@@ -113,6 +118,8 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 **前置条件**：Windows 10/11、Python 3、Node.js（`npx`）。
 
+安装器自动定位 ZCode（依次尝试：环境变量 `ZCODE_ROOT`、Windows 注册表、`%LOCALAPPDATA%\Programs`、Program Files、各盘根目录）。找不到时：设置 `ZCODE_ROOT` 指向你的 ZCode 文件夹，或把整合包拷进 ZCode 文件夹后运行 `install.bat`。
+
 1. **完全退出 ZCode**（右键系统托盘图标 → 退出，不是关窗口）
 2. 双击 `install.bat`
 3. 出现菜单：上下键选模块，左右键（或空格）切换 **ON / OFF**，回车执行
@@ -146,6 +153,12 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.1.1
+
+- 🐛 **修复安装定位硬编码 H:\Zcode 的可移植性问题**：非默认安装路径的机器（如 `C:\Program Files`、`%LOCALAPPDATA%\Programs`、其他盘）之前会找不到 ZCode 甚至误导性地在补丁包目录里找 asar。现在按 环境变量 `ZCODE_ROOT` → Windows 注册表卸载项 InstallLocation → 标准安装路径 → 各盘根 ➕补丁包所在目录 的顺序自动定位；找不到时给出明确修复指引而不是静默失败
+- 🧪 新增安装定位回归测试（6 项），全套 120 项
+- 📝 README 补充安装定位说明
 
 ### v1.1.0
 

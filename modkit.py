@@ -181,10 +181,75 @@ def save_config(cfg):
     CONFIG.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
 
+def _registry_install_locations():
+    """InstallLocation of uninstall entries whose DisplayName mentions ZCode.
+    NSIS/Squirrel installers register here, so this finds standard installs
+    on any drive — the kit must never assume a fixed path."""
+    found = []
+    try:
+        import winreg
+    except ImportError:
+        return found
+    for hive, key_path in (
+        (winreg.HKEY_CURRENT_USER,
+         r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"Software\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ):
+        try:
+            with winreg.OpenKey(hive, key_path) as key:
+                for i in range(winreg.QueryInfoKey(key)[0]):
+                    try:
+                        with winreg.OpenKey(key, winreg.EnumKey(key, i)) as sub:
+                            disp = str(winreg.QueryValueEx(sub, "DisplayName")[0])
+                            if "zcode" not in disp.lower():
+                                continue
+                            loc = winreg.QueryValueEx(sub, "InstallLocation")[0]
+                            if loc:
+                                found.append(Path(str(loc).rstrip("/\\")))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return found
+
+
+def _is_zcode_root(p):
+    """A folder counts as the ZCode root only when the real target exists."""
+    try:
+        return (p / "resources" / "app.asar").is_file()
+    except OSError:
+        return False
+
+
 def find_zcode_root():
-    for candidate in (Path("H:/Zcode"), Path("H:/zcode")):
-        if (candidate / "resources" / "app.asar").exists():
-            return candidate
+    """Locate the ZCode install: env override, registry, then common paths.
+
+    NEVER assume one fixed drive — the kit must work on machines where ZCode
+    lives in %LOCALAPPDATA%\\Programs, Program Files or any drive root."""
+    candidates = []
+    env = os.environ.get("ZCODE_ROOT")
+    if env:
+        candidates.append(Path(env))
+    candidates += _registry_install_locations()
+    home = Path.home()
+    candidates += [
+        home / "AppData" / "Local" / "Programs" / "ZCode",
+        home / "AppData" / "Local" / "Programs" / "zcode",
+        home / "AppData" / "Local" / "ZCode",
+        home / "AppData" / "Roaming" / "ZCode",
+        Path("C:/Program Files/ZCode"),
+        Path("C:/Program Files (x86)/ZCode"),
+        ROOT,  # kit copied INTO the ZCode folder (documented fallback)
+    ]
+    for d in "CDEFGH":
+        candidates.append(Path(d + ":/Zcode"))
+        candidates.append(Path(d + ":/zcode"))
+    for p in candidates:
+        if _is_zcode_root(p):
+            return p
     return None
 
 
@@ -731,7 +796,21 @@ def get_key():
 def main():
     vt_on()
     mods = load_modules()
-    paths = KitPaths(find_zcode_root() or ROOT)
+    root = find_zcode_root()
+    if root is None:
+        print(c(RED, "[ERROR] ZCode installation not found."))
+        print(c(YELLOW, "  Searched: %LOCALAPPDATA% programs, the Windows registry,"))
+        print(c(YELLOW, "  Program Files and every drive root."))
+        print(c(YELLOW, "  Fix 1: set ZCODE_ROOT to your ZCode folder, e.g."))
+        print(c(DIM, '    set ZCODE_ROOT=C:\\Users\\you\\AppData\\Local\\Programs\\ZCode'))
+        print(c(DIM, "    install.bat"))
+        print(c(YELLOW, "  Fix 2: copy this kit INTO the ZCode folder and run install.bat there."))
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return
+    paths = KitPaths(root)
 
     args = sys.argv[1:]
     if "--uninstall-all" in args:

@@ -1,9 +1,15 @@
 {
   "slug": "route-override",
   "display_name": "请求头与网络路由",
-  "version": "1.0.3",
-  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel",
+  "version": "1.0.4",
+  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: 401 self-heal (re-read auth-token on demand)",
   "order": 10,
-  "targets": ["zcode-cjs", "asar"],
-  "markers": ["zcode-route-override-ui", "/*zro*/"]
+  "targets": [
+    "zcode-cjs",
+    "asar"
+  ],
+  "markers": [
+    "zcode-route-override-ui",
+    "/*zro*/"
+  ]
 }

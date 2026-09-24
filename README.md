@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.2.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -153,6 +153,12 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.2.0
+
+- 🆕 **皮肤面板版本更新通知**：本机 mod-kit 旧于 GitHub 最新 Release 时，皮肤面板最上方出现提示行，点击直达 Releases 下载页；ZCode 启动时后台静默检查，每自然日最多一次，任何失败静默不干扰
+- 🐛 **修复 401 unauthorized 故障类**（用户实测：切换账号报 unauthorized、已存凭证读不到）：三个本地服务的 token 此前只在启动时读一次 auth-token 文件，瞬时读失败（并发安装/杀软锁）后永久 401 直到重启。现在 401 前懒重读 token 文件自愈，数据无损
+- 📄 设计与实现计划见 `docs/superpowers/`（spec + plan）
 
 ### v1.1.1
 

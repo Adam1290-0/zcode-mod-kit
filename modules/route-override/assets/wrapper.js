@@ -18,12 +18,17 @@ const CONFIG_SERVER_PORT = parseInt(process.env.ZRO_PORT, 10) || 27891;
 // Shared secret created by the UI injector at install time and embedded into
 // the patched renderer. Config-server requests must carry it, so a random
 // webpage (even file:// with Origin:null) cannot read/rewrite route config.
+const TOKEN_FILE = process.env.ZRO_TOKEN_FILE || path.join(DIR, "auth-token");
 let AUTH_TOKEN = "";
-try {
-  const tokenFile = process.env.ZRO_TOKEN_FILE || path.join(DIR, "auth-token");
-  AUTH_TOKEN = fs.readFileSync(tokenFile, "utf8").trim();
-} catch (_) { AUTH_TOKEN = ""; }
-if (!AUTH_TOKEN) log("WARN: auth-token missing - config server rejects all requests until it exists");
+try { AUTH_TOKEN = fs.readFileSync(TOKEN_FILE, "utf8").trim(); } catch (_) {}
+if (!AUTH_TOKEN) log("WARN: auth-token unreadable at boot - will retry on demand");
+// 401 self-heal: a transient boot-time read failure (concurrent install /
+// AV lock) used to wedge the server at AUTH_TOKEN="" rejecting every request
+// until restart. Re-read lazily only when a check would otherwise fail.
+function refreshToken() {
+  try { AUTH_TOKEN = fs.readFileSync(TOKEN_FILE, "utf8").trim(); } catch (_) {}
+  return AUTH_TOKEN;
+}
 
 function tokenEqual(a, b) { // constant-time; equalize length first (matches pin/account)
   if (typeof a !== "string" || typeof b !== "string") return false;
@@ -301,7 +306,8 @@ function startConfigServer() {
     // Auth: the token is embedded in the patched renderer and kept in a local
     // file next to this wrapper. Local users can read it (same trust level),
     // but a random webpage cannot - this is the load-bearing wall.
-    if (!AUTH_TOKEN || !tokenEqual(req.headers["x-zro-token"], AUTH_TOKEN)) {
+    if ((!AUTH_TOKEN || !tokenEqual(req.headers["x-zro-token"], AUTH_TOKEN)) &&
+        (!refreshToken() || !tokenEqual(req.headers["x-zro-token"], AUTH_TOKEN))) {
       res.writeHead(401); return res.end("unauthorized");
     }
     // Defense in depth: browsers always send a real Origin on cross-site

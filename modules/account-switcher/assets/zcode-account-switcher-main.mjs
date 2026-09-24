@@ -232,15 +232,26 @@ async function restoreAux(aux) {
 // the renderer is the only legitimate client and same-origin/file fetches
 // don't need them.
 const TOKEN_FILE = path.join(PROFILES_DIR, 'auth-token');
-const AUTH_TOKEN = (() => {
+let AUTH_TOKEN = (() => {
   try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch { return ''; }
 })();
+// 401 self-heal: a transient boot-time read failure used to wedge the server
+// at AUTH_TOKEN='' rejecting every request (UI showed unauthorized, the
+// profile list looked empty) until restart. Re-read lazily on demand.
+function refreshToken() {
+  try { AUTH_TOKEN = fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch {}
+  return AUTH_TOKEN;
+}
 function tokenOk(req) {
-  if (!AUTH_TOKEN) return false;
   const got = String(req.headers['x-zca-token'] || '');
-  const a = Buffer.from(AUTH_TOKEN);
+  let a = Buffer.from(AUTH_TOKEN);
   const b = Buffer.from(got);
-  if (a.length !== b.length || a.length === 0) return false;
+  if (a.length !== b.length || a.length === 0) {
+    // second chance: re-read the token file (boot-time transient failure heal)
+    if (!refreshToken()) return false;
+    a = Buffer.from(AUTH_TOKEN);
+    if (a.length !== b.length || a.length === 0) return false;
+  }
   return crypto.timingSafeEqual(a, b);
 }
 

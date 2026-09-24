@@ -20,13 +20,19 @@ const store = core.createStore(STORE_PATH);
 let lastInjectReport = null;
 // P3-6: set when a main-session chat hit an UNCOVERED endpoint while pins exist
 let lastUncoveredReport = null;
+const TOKEN_FILE = process.env.ZPIN_TOKEN_FILE || path.join(DATA_DIR, "auth-token");
 let AUTH_TOKEN = "";
 if (process.env.ZPIN_TOKEN) AUTH_TOKEN = process.env.ZPIN_TOKEN.trim();
 else {
-  try {
-    const tf = process.env.ZPIN_TOKEN_FILE || path.join(DATA_DIR, "auth-token");
-    AUTH_TOKEN = fs.readFileSync(tf, "utf8").trim();
-  } catch (_) {}
+  try { AUTH_TOKEN = fs.readFileSync(TOKEN_FILE, "utf8").trim(); } catch (_) {}
+}
+// 401 self-heal: a transient boot-time read failure used to wedge the server
+// at AUTH_TOKEN="" rejecting every request until restart. Re-read lazily only
+// when a check would otherwise fail; the env override always wins.
+function refreshToken() {
+  if (process.env.ZPIN_TOKEN) { AUTH_TOKEN = process.env.ZPIN_TOKEN.trim(); return AUTH_TOKEN; }
+  try { AUTH_TOKEN = fs.readFileSync(TOKEN_FILE, "utf8").trim(); } catch (_) {}
+  return AUTH_TOKEN;
 }
 
 // Log rotation: append-only would grow forever in a long-lived ZCode process,
@@ -233,7 +239,8 @@ function startServer() {
         : "";
       return json(200, { nonce: nonce, proof: proof });
     }
-    if (!AUTH_TOKEN || !tokenEqual(req.headers["x-zpin-token"], AUTH_TOKEN)) {
+    if ((!AUTH_TOKEN || !tokenEqual(req.headers["x-zpin-token"], AUTH_TOKEN)) &&
+        (!refreshToken() || !tokenEqual(req.headers["x-zpin-token"], AUTH_TOKEN))) {
       res.writeHead(401); return res.end("unauthorized");
     }
     const origin = req.headers.origin;

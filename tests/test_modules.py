@@ -133,6 +133,34 @@ def main():
         cjs = make_tree(work)
         cycle("skin", "skin-manager", work, None)
 
+        # ---- 1b. kit-version baking (update banner) ------------------------
+        work = tmp / "skin-kv" / "unpacked"
+        cjs = make_tree(work)
+        env_kv = dict(os.environ)
+        env_kv["USERPROFILE"] = str(tmp / "home")
+        try:
+            rc, out = run(module("skin-manager") / "inject.py",
+                          ["--dir", str(work), "--kit-version", "1.2.0"], env_kv)
+            check("skin-kv: inject exit 0", rc == 0, out[-300:])
+            html = (work / "out" / "renderer" / "index.html").read_text(
+                encoding="utf-8", newline="")
+            check("skin-kv: version baked as JSON string", '"1.2.0"' in html)
+            check("skin-kv: placeholder gone", "__ZCKIT_VERSION__" not in html)
+            rc2, _ = run(module("skin-manager") / "verify.py",
+                         ["--dir", str(work), "--kit-version", "1.2.0"], env_kv)
+            check("skin-kv: verify exit 0", rc2 == 0)
+        finally:
+            if (tmp / "skin-kv").exists():
+                shutil.rmtree(tmp / "skin-kv", ignore_errors=True)
+        # no-flag path: placeholder survives
+        work = tmp / "skin-noflag" / "unpacked"
+        cjs = make_tree(work)
+        rc, out = run(module("skin-manager") / "inject.py",
+                      ["--dir", str(work)], env_kv)
+        html = (work / "out" / "renderer" / "index.html").read_text(
+            encoding="utf-8", newline="")
+        check("skin-noflag: placeholder kept", "__ZCKIT_VERSION__" in html, out[-200:])
+
         # ---- 2. account-switcher (LF) ------------------------------------
         work = tmp / "acct-lf" / "unpacked"
         cjs = make_tree(work, main=MOCK_MAIN_LF)

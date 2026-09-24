@@ -48,6 +48,9 @@ N_YELLOW = "\x1b[38;5;220m"
 N_ORANGE = "\x1b[38;5;208m"
 
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
+# mod-kit's own version: single machine-readable source (README badge/changelog
+# bump in lockstep). Baked into the skin ui at inject time for the update banner.
+KIT_VERSION = "1.2.0"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -512,6 +515,8 @@ def module_cmd(mod, work_dir, cjs_path, script_name):
         args += ["--dir", str(work_dir)]
     if cjs_path and "zcode-cjs" in mod.get("targets", []):
         args += ["--zcode-cjs", str(cjs_path)]
+    if mod.get("slug") == "skin-manager":
+        args += ["--kit-version", KIT_VERSION]
     return args
 
 

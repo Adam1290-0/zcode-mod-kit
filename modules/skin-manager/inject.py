@@ -5,13 +5,14 @@ Injects ui_skin.js into <dir>/out/renderer/index.html as a
 <script id="zcode-skin-ui"> block before </body>.
 
 Contract (mod-kit spec 2.2):
-  python inject.py --dir <extracted-asar-dir> [--zcode-cjs <path>] [--install-root <path>]
+  python inject.py --dir <extracted-asar-dir> [--zcode-cjs <path>] [--install-root <path>] [--kit-version <ver>]
   - Idempotent: if marker already present, print [SKIP] and exit 0.
   - Surgical: only touches the zcode-skin-ui script block; never other modules.
   - Zero third-party deps. English comments. [skin-manager] log prefix.
   - Fails with exit != 0 and a concrete message on any error.
 """
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -33,6 +34,8 @@ def main() -> None:
     ap.add_argument("--dir", required=True, help="extracted asar directory")
     ap.add_argument("--zcode-cjs", help="unused by this module (targets=asar only)")
     ap.add_argument("--install-root", help="unused by this module (paths come from --dir)")
+    ap.add_argument("--kit-version", default=None,
+                    help="mod-kit version baked into the ui script (update banner)")
     args = ap.parse_args()
 
     root = Path(args.dir)
@@ -47,6 +50,14 @@ def main() -> None:
     js = js_path.read_text(encoding="utf-8")
     if "</script>" in js:
         fail("ui_skin.js contains '</script>' literal; block regex would be unsafe")
+
+    # Bake the mod-kit version (update-banner feature). Bare JSON-string
+    # replacement of the QUOTED placeholder — repr-around-quotes is the
+    # token-baking bug class. No --kit-version: placeholder stays as-is.
+    if args.kit_version:
+        js = js.replace('"__ZCKIT_VERSION__"', json.dumps(args.kit_version))
+        if "__ZCKIT_VERSION__" in js:
+            fail("ui_skin.js has an unquoted __ZCKIT_VERSION__ placeholder")
 
     html = html_path.read_text(encoding="utf-8", newline="")
 

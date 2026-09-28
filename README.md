@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.2.3-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -153,6 +153,14 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.3.0
+
+- 🐛 **修复无休止 401 的真根因**（server.log 实锤：渲染层请求从不带 token 头）：注入器的全局 token 烘焙把 ui_accounts.js 判断条件里的占位符也替换成了 token 本身，`indexOf('<token>')` 恒 false → 头永远不被设置。v1.0.3 引入、潜伏至今——服务器端历代修复全部无效，因为请求根本不带凭证
+- 🛡️ 判断条件改为格式检测（hex64 正则），不依赖占位符字符串；inject 烘焙改为精确 var 行替换 + 烘焙后残留检查（出现任何占位符拒绝部署）
+- 🎨 skin-manager 同构 bug 同修（KIT_VERSION 条件里的占位符导致更新检查永不运行）
+- 🧪 新增 bake-guard 回归测试，全套 **144 项全绿**
+- 🔍 含 v1.2.3 的请求形状日志、401 双模式语义、端口占用重试与 UI 自愈重试
 
 ### v1.2.3
 

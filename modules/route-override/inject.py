@@ -151,6 +151,9 @@ def uninject_zcode_cjs(cjs_path: Path) -> bool:
 
 # ---------------------------------------------------------------- renderer
 def load_token(token_file: Path) -> str:
+    # The runtime dir is normally created by deploy_runtime, but load_token can
+    # run before it (renderer-only inject without --zcode-cjs) — never assume.
+    token_file.parent.mkdir(parents=True, exist_ok=True)
     if token_file.exists():
         t = token_file.read_text(encoding="utf-8").strip()
         if t:
@@ -165,8 +168,8 @@ def inject_renderer(out_dir: Path, ui_js: Path, token: str) -> bool:
     if not html_path.exists():
         raise RuntimeError(f"renderer/index.html not found under {out_dir}")
 
-    html = html_path.read_text(encoding="utf-8")
-    js = ui_js.read_text(encoding="utf-8")
+    html = html_path.read_text(encoding="utf-8", newline="")
+    js = ui_js.read_text(encoding="utf-8", newline="")
     # The token prologue MUST be part of EVERY block, fresh or replaced.
     # ui_route_override.js reads the global ZRO_TOKEN and the config server
     # rejects requests that lack it. The replace path (upgrading an older block)
@@ -198,7 +201,7 @@ def uninject_renderer(out_dir: Path) -> bool:
     html_path = out_dir / "out" / "renderer" / "index.html"
     if not html_path.exists():
         raise RuntimeError(f"renderer/index.html not found under {out_dir}")
-    html = html_path.read_text(encoding="utf-8")
+    html = html_path.read_text(encoding="utf-8", newline="")
     idx = html.find(RENDERER_MARKER)
     if idx < 0:
         log("renderer: no marker block, nothing to remove")
@@ -241,7 +244,7 @@ def verify(out_dir: Path, cjs_path: Path | None) -> int:
         log(f"renderer/index.html not found under {out_dir}")
         ok = False
     else:
-        html = html_path.read_text(encoding="utf-8")
+        html = html_path.read_text(encoding="utf-8", newline="")
         idx = html.find(RENDERER_MARKER)
         if idx < 0:
             log("renderer: marker block missing")

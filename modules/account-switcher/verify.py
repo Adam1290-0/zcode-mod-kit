@@ -19,6 +19,7 @@ from pathlib import Path
 SLUG = "account-switcher"
 MAIN_IMPORT_CORE = 'import("./zcode-account-switcher-main.mjs").catch(()=>{});'
 RENDERER_MARKER = '<script id="zcode-account-switcher">'
+TOKEN_PLACEHOLDER = "__ZCA_TOKEN__"
 TOKEN_BAKE_RE = re.compile(r"var TOKEN = '[0-9a-f]{64}'")
 
 
@@ -121,6 +122,25 @@ def main() -> int:
                 if chk.returncode != 0:
                     log("FAIL renderer block fails node --check (invalid JS)")
                     ok = False
+
+    # 5. renderer payload freshness: the deployed block must equal the current
+    # asset with the token baked. Without this, a stale UI payload (marker +
+    # valid token shape but old code) passes verify forever — the renderer
+    # half of the 2026-09-28 staleness incident. Token unknown/absent on disk
+    # degrades to the shape checks above (never a false FAIL).
+    if block_js is not None and ok:
+        asset_js_path = Path(__file__).resolve().parent / "assets" / "ui_accounts.js"
+        tok_file = Path.home() / ".zcode" / "account-profiles" / "auth-token"
+        try:
+            tok = tok_file.read_text(encoding="utf-8").strip() if tok_file.exists() else ""
+            asset_js = read_raw(asset_js_path)
+            if tok and TOKEN_PLACEHOLDER in asset_js:
+                expected = asset_js.replace(TOKEN_PLACEHOLDER, tok)
+                if block_js.strip() != expected.strip():
+                    log("FAIL renderer block payload differs from assets/ui_accounts.js (stale version)")
+                    ok = False
+        except OSError:
+            pass  # unreadable asset/token -> shape checks above already ran
 
     if ok:
         log("verify OK")

@@ -91,29 +91,53 @@ def main() -> int:
         and "__ZCA_TOKEN__" not in tail
         and re.search(r"var TOKEN = '[0-9a-f]{64}'", tail) is not None
     )
-    if MAIN_MARKER in entry_src and token_aware and module_dst.exists():
-        log("[SKIP] already injected")
-        return 0
 
-    # redeploy path (fresh install or pre-token upgrade): regenerate everything
-
-    # 1. copy main-process module
-    write_raw(module_dst, read_raw(assets / "zcode-account-switcher-main.mjs"))
-    log(f"copied main module -> out/main/{module_dst.name}")
-
-    # 1b. auth token: generate (first time) and bake into the renderer copy;
-    # the main-process server reads the same file at boot.
+    # auth token: reuse or generate BEFORE the gate — the payload-freshness
+    # comparison below needs it baked into the expected block.
     token_file = Path.home() / ".zcode" / "account-profiles" / "auth-token"
     token_file.parent.mkdir(parents=True, exist_ok=True)
     if token_file.exists() and token_file.read_text(encoding="utf-8").strip():
         token = token_file.read_text(encoding="utf-8").strip()
-        log("auth token reused")
     else:
         token = secrets.token_hex(32)
         token_file.write_text(token, encoding="utf-8")
         log(f"auth token generated -> {token_file}")
+
+    # Renderer payload freshness: the deployed block must equal the CURRENT
+    # asset with the token baked. Token-shape checks alone let stale UI code
+    # survive re-installs forever — the renderer half of the 2026-09-28
+    # staleness incident. Computed HERE so the skip gate can require it.
+    renderer_fresh = False
+    if token_aware:
+        start = html.find(RENDERER_MARKER)
+        deployed = html[start + len(RENDERER_MARKER):bend] if start >= 0 else ""
+        js_asset = read_raw(assets / "ui_accounts.js")
+        if TOKEN_PLACEHOLDER not in js_asset:
+            log(f"[ERROR] ui_assets.js missing token placeholder {TOKEN_PLACEHOLDER}")
+            return 1
+        renderer_fresh = deployed.strip() == js_asset.replace(TOKEN_PLACEHOLDER, token).strip()
+
+    module_current = module_dst.exists() and \
+        read_raw(module_dst) == read_raw(assets / "zcode-account-switcher-main.mjs")
+    if MAIN_MARKER in entry_src and token_aware and renderer_fresh and module_current:
+        log("[SKIP] already injected")
+        return 0
+    # NOTE: the content checks above are load-bearing. Gating the main module
+    # on module_dst.exists() alone made every re-install skip the recopy, so
+    # main-module fixes shipped in new assets (v1.2.0 401 self-heal, v1.2.1
+    # CORS) never reached already-patched installs (observed 2026-09-28: the
+    # asar carried the old main.mjs while KIT_VERSION said 1.2.1). The
+    # renderer block had the same hole on the other axis: a token-shaped but
+    # stale payload passed every check forever.
+
+    # redeploy path (fresh install or pre-token upgrade): regenerate everything
+
+    # 1. copy main-process module
     module_src = read_raw(assets / "zcode-account-switcher-main.mjs")
     write_raw(module_dst, module_src)
+    log(f"copied main module -> out/main/{module_dst.name}")
+
+    # 1b. token already resolved above (the gate's freshness check needs it).
 
     # 2. prepend dynamic import (tolerates other modules' prepended lines)
     if MAIN_MARKER not in entry_src:
@@ -124,9 +148,27 @@ def main() -> int:
     else:
         log("main entry already patched")
 
-    # 3. renderer script block before </body>, token baked in
+    # 3. renderer script block: fresh-insert, stale-replace or leave intact
     if RENDERER_ID in html and token_aware:
-        log("renderer script already present")
+        if renderer_fresh:
+            log("renderer script already present")
+        else:
+            start = html.find(RENDERER_MARKER)
+            end = html.find("</script>", start)
+            if end < 0:
+                log("[ERROR] existing renderer block has no closing </script>")
+                return 1
+            nl = detect_nl(html.find("</body>"), html)
+            js = read_raw(assets / "ui_accounts.js").replace(TOKEN_PLACEHOLDER, token)
+            block = nl.join([RENDERER_MARKER, js, "</script>"]) + nl
+            end += len("</script>")
+            if html[end:end + 2] == "\r\n":
+                end += 2
+            elif html[end:end + 1] == "\n":
+                end += 1
+            html = html[:start] + block + html[end:]
+            write_raw(html_path, html)
+            log("renderer block refreshed (payload updated)")
     else:
         body_idx = html.find("</body>")
         if body_idx < 0:

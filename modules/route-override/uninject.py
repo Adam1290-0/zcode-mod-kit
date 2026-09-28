@@ -58,7 +58,7 @@ def main() -> int:
             print(f"{PREFIX} [ERROR] /*zro*/ still present in zcode.cjs")
             ok = False
     html_path = out_dir / "out" / "renderer" / "index.html"
-    if html_path.exists() and RENDERER_MARKER in html_path.read_text(encoding="utf-8"):
+    if html_path.exists() and RENDERER_MARKER in html_path.read_text(encoding="utf-8", newline=""):
         print(f"{PREFIX} [ERROR] renderer marker still present")
         ok = False
 

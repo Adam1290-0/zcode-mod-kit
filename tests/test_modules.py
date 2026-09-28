@@ -161,6 +161,95 @@ def main():
             encoding="utf-8", newline="")
         check("skin-noflag: placeholder kept", "__ZCKIT_VERSION__" in html, out[-200:])
 
+        # ---- 1c. account main-module freshness (2026-09-28 incident) -------
+        # The old skip gate (module_dst.exists()) made re-installs keep the
+        # OLD deployed main module forever, so shipped main.mjs fixes never
+        # reached patched installs. Simulate: inject, corrupt the deployed
+        # module (like an older version), re-inject -> must be restored.
+        work = tmp / "acct-fresh" / "unpacked"
+        cjs = make_tree(work, main=MOCK_MAIN_LF)
+        try:
+            rc, out = run(module("account-switcher") / "inject.py",
+                          ["--dir", str(work)], env_kv)
+            check("acct-fresh: inject exit 0", rc == 0, out[-300:])
+            dst = work / "out" / "main" / "zcode-account-switcher-main.mjs"
+            asset = (module("account-switcher") / "assets" /
+                     "zcode-account-switcher-main.mjs").read_text(
+                encoding="utf-8", newline="")
+            check("acct-fresh: deployed == asset", dst.read_text(
+                encoding="utf-8", newline="") == asset)
+            # simulate an OLD deployed module (pre-fix era)
+            dst.write_text("// stale old main module\n" + asset, encoding="utf-8", newline="")
+            # the detector half: verify MUST reject the stale deployment
+            rcv, outv = run(module("account-switcher") / "verify.py",
+                            ["--dir", str(work)], env_kv)
+            check("acct-fresh: verify FAILS on stale main module",
+                  rcv != 0 and "differs from assets copy" in outv, f"rc={rcv}")
+            rc, out = run(module("account-switcher") / "inject.py",
+                          ["--dir", str(work)], env_kv)
+            check("acct-fresh: re-inject after asset drift exit 0", rc == 0, out[-300:])
+            check("acct-fresh: stale module restored to asset",
+                  dst.read_text(encoding="utf-8", newline="") == asset, out[-300:])
+            check("acct-fresh: no duplicate import lines",
+                  (work / "out" / "main" / "index.js").read_text(
+                      encoding="utf-8", newline="").count(
+                      'import("./zcode-account-switcher-main.mjs")') == 1)
+            rc2, _ = run(module("account-switcher") / "verify.py",
+                         ["--dir", str(work)], env_kv)
+            check("acct-fresh: verify exit 0", rc2 == 0)
+        finally:
+            if (tmp / "acct-fresh").exists():
+                shutil.rmtree(tmp / "acct-fresh", ignore_errors=True)
+
+        # ---- 1d. account renderer-block freshness (same incident, UI half) --
+        work = tmp / "acct-ui-fresh" / "unpacked"
+        cjs = make_tree(work, main=MOCK_MAIN_LF)
+        try:
+            rc, out = run(module("account-switcher") / "inject.py",
+                          ["--dir", str(work)], env_kv)
+            check("acct-ui: inject exit 0", rc == 0, out[-300:])
+            hp = work / "out" / "renderer" / "index.html"
+            html = hp.read_text(encoding="utf-8", newline="")
+            i0 = html.find('<script id="zcode-account-switcher">')
+            i1 = html.find("</script>", i0)
+            # inject a stale line into the deployed block (token shape intact)
+            stale = html[:i1] + "\n  window.__STALE_UI = 1;" + html[i1:]
+            hp.write_text(stale, encoding="utf-8", newline="")
+            rcv, outv = run(module("account-switcher") / "verify.py",
+                            ["--dir", str(work)], env_kv)
+            check("acct-ui: verify FAILS on stale renderer payload",
+                  rcv != 0 and "stale version" in outv, f"rc={rcv} {outv[-200:]}")
+            rc, out = run(module("account-switcher") / "inject.py",
+                          ["--dir", str(work)], env_kv)
+            check("acct-ui: re-inject exit 0", rc == 0, out[-300:])
+            html = hp.read_text(encoding="utf-8", newline="")
+            check("acct-ui: stale line gone after re-inject",
+                  "__STALE_UI" not in html)
+            check("acct-ui: block count still 1",
+                  html.count('<script id="zcode-account-switcher">') == 1)
+            rc2, _ = run(module("account-switcher") / "verify.py",
+                         ["--dir", str(work)], env_kv)
+            check("acct-ui: verify exit 0 after refresh", rc2 == 0)
+        finally:
+            if (tmp / "acct-ui-fresh").exists():
+                shutil.rmtree(tmp / "acct-ui-fresh", ignore_errors=True)
+
+        # ---- 1e. route-override CRLF byte-exact roundtrip -------------------
+        work = tmp / "route-crlf" / "unpacked"
+        cjs = make_tree(work, html=MOCK_HTML.replace("\n", "\r\n"))
+        try:
+            orig = (work / "out" / "renderer" / "index.html").read_bytes()
+            rc, out = run(module("route-override") / "inject.py",
+                          ["--dir", str(work), "--zcode-cjs", str(cjs)], env_kv)
+            check("route-crlf: inject exit 0", rc == 0, out[-300:])
+            run(module("route-override") / "uninject.py",
+                ["--dir", str(work)], env_kv)
+            check("route-crlf: byte-identical restore",
+                  (work / "out" / "renderer" / "index.html").read_bytes() == orig)
+        finally:
+            if (tmp / "route-crlf").exists():
+                shutil.rmtree(tmp / "route-crlf", ignore_errors=True)
+
         # ---- 2. account-switcher (LF) ------------------------------------
         work = tmp / "acct-lf" / "unpacked"
         cjs = make_tree(work, main=MOCK_MAIN_LF)

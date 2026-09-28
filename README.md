@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.2.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.2.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -153,6 +153,13 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.2.2
+
+- 🐛 **修复补丁更新从未真正部署的根因**（v1.2.0/v1.2.1 的修复在已打补丁的机器上全部未生效）：account-switcher 注入器的幂等 SKIP 门只查"文件存在"，重装时解包旧 asar 后已部署的旧版主模块被原样保留重打包——主模块修复（401 自愈、CORS）和渲染块 UI 更新都到不了用户机器。现在主模块与渲染块都与当前资产做内容比对，不一致即重新部署；verify 同步校验渲染块 payload
+- 🐛 route-override 修 CRLF 行尾破坏（读文件缺 `newline=''`）与 renderer-only 注入时 token 目录未创建的崩溃
+- 🧪 新增 9 项回归测试（主模块/渲染块陈旧检测与恢复、verify 必须报陈旧、route CRLF 字节还原），全套 140 项
+- 🤝 交叉审查：code-reviewer 确认修复正确性与其余 5 模块无同类洞；test-writer 发现渲染块陈旧活洞与 route 行尾违规（均已修）
 
 ### v1.2.1
 

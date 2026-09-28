@@ -1,8 +1,8 @@
 {
   "slug": "route-override",
   "display_name": "请求头与网络路由",
-  "version": "1.0.6",
-  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: CORS preflight blocked renderer fetches on newer Electron (echo cors headers incl. Private-Network)",
+  "version": "1.0.7",
+  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: switching preset back to default sent no match field (undefined route dropped by JSON.stringify -> 400); removal now carries {match}",
   "order": 10,
   "targets": [
     "zcode-cjs",

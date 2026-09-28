@@ -347,7 +347,10 @@
       saveTimer = setTimeout(function () {
         // upsert THIS provider's route only; server merges against disk truth
         var r = findRoute(host);
-        saveRoutes(r, !r).then(function () {
+        // Removing a route (e.g. switched back to 默认) must still send the
+        // match field: JSON.stringify drops undefined keys, so a bare
+        // undefined route reaches the server without match -> 400 保存失败.
+        saveRoutes(r || { match: host }, !r).then(function () {
           statusA.textContent = '✓ 已生效';
           setTimeout(function () { statusA.textContent = ''; }, 1600);
         }).catch(function () {

@@ -112,10 +112,12 @@ def main() -> int:
         start = html.find(RENDERER_MARKER)
         deployed = html[start + len(RENDERER_MARKER):bend] if start >= 0 else ""
         js_asset = read_raw(assets / "ui_accounts.js")
-        if TOKEN_PLACEHOLDER not in js_asset:
-            log(f"[ERROR] ui_assets.js missing token placeholder {TOKEN_PLACEHOLDER}")
+        VAR_LINE = "var TOKEN = '__ZCA_TOKEN__';"
+        if VAR_LINE not in js_asset:
+            log("[ERROR] ui_accounts.js has no bakeable var TOKEN line")
             return 1
-        renderer_fresh = deployed.strip() == js_asset.replace(TOKEN_PLACEHOLDER, token).strip()
+        renderer_fresh = deployed.strip() == js_asset.replace(
+            VAR_LINE, "var TOKEN = '" + token + "';").strip()
 
     module_current = module_dst.exists() and \
         read_raw(module_dst) == read_raw(assets / "zcode-account-switcher-main.mjs")
@@ -179,11 +181,19 @@ def main() -> int:
         if TOKEN_PLACEHOLDER not in js:
             log(f"[ERROR] ui_accounts.js missing token placeholder {TOKEN_PLACEHOLDER}")
             return 1
-        # Bake the token WITHOUT repr(): the placeholder already sits inside
-        # single quotes in ui_accounts.js, and repr() would emit a second
-        # quote pair (''tok''), a JS syntax error that silently killed the
-        # whole block (2026-09-23 incident).
-        js = js.replace(TOKEN_PLACEHOLDER, token)
+        # Bake the token WITHOUT repr() (2026-09-23 incident) and ONLY in the
+        # var line: the asset must never contain the placeholder anywhere else
+        # (a guard like TOKEN.indexOf('__ZCA_TOKEN__') would be rewritten into
+        # TOKEN.indexOf('<token>') — always false — and the header would never
+        # be sent; that was the 2026-09-28 root cause of the endless 401s).
+        VAR_LINE = "var TOKEN = '__ZCA_TOKEN__';"
+        if VAR_LINE not in js:
+            log("[ERROR] ui_accounts.js has no bakeable var TOKEN line")
+            return 1
+        js = js.replace(VAR_LINE, "var TOKEN = '" + token + "';")
+        if TOKEN_PLACEHOLDER in js:
+            log("[ERROR] ui_accounts.js still contains a raw placeholder after baking")
+            return 1
         block = nl.join([RENDERER_MARKER, js, "</script>"]) + nl
         if RENDERER_ID in html:
             # pre-token block present: replace it wholly so the token lands

@@ -250,6 +250,34 @@ def main():
             if (tmp / "route-crlf").exists():
                 shutil.rmtree(tmp / "route-crlf", ignore_errors=True)
 
+        # ---- 1f. placeholder-condition baking guard (2026-09-28 root cause) --
+        # The old global bake rewrote TOKEN.indexOf('__ZCA_TOKEN__') guards
+        # into TOKEN.indexOf('<token>') — always false — so the renderer never
+        # sent the token header and every call 401'd. The bake is now an exact
+        # var-line replacement and the block must show the header-send branch
+        # intact with ZERO placeholder-condition residue.
+        work = tmp / "acct-bake-guard" / "unpacked"
+        cjs = make_tree(work, main=MOCK_MAIN_LF)
+        try:
+            rc, out = run(module("account-switcher") / "inject.py",
+                          ["--dir", str(work)], env_kv)
+            check("bake-guard: inject exit 0", rc == 0, out[-300:])
+            hp = work / "out" / "renderer" / "index.html"
+            html = hp.read_text(encoding="utf-8", newline="")
+            i0 = html.find('<script id="zcode-account-switcher">')
+            i1 = html.find("</script>", i0)
+            blk = html[i0:i1]
+            check("bake-guard: no placeholder-condition residue",
+                  "indexOf('__ZCA_TOKEN__')" not in blk and "__ZCA_TOKEN__" not in blk)
+            check("bake-guard: header-send branch intact",
+                  "x-zca-token'] = TOKEN" in blk and "/^[0-9a-f]{64}$/.test(TOKEN)" in blk)
+            rcv, _ = run(module("account-switcher") / "verify.py",
+                         ["--dir", str(work)], env_kv)
+            check("bake-guard: verify exit 0", rcv == 0)
+        finally:
+            if (tmp / "acct-bake-guard").exists():
+                shutil.rmtree(tmp / "acct-bake-guard", ignore_errors=True)
+
         # ---- 2. account-switcher (LF) ------------------------------------
         work = tmp / "acct-lf" / "unpacked"
         cjs = make_tree(work, main=MOCK_MAIN_LF)

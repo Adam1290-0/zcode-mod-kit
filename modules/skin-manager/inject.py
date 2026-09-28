@@ -55,9 +55,12 @@ def main() -> None:
     # replacement of the QUOTED placeholder — repr-around-quotes is the
     # token-baking bug class. No --kit-version: placeholder stays as-is.
     if args.kit_version:
-        js = js.replace('"__ZCKIT_VERSION__"', json.dumps(args.kit_version))
+        VAR_LINE = '"__ZCKIT_VERSION__"'
+        if VAR_LINE not in js:
+            fail('ui_skin.js has no bakeable var KIT_VERSION line')
+        js = js.replace(VAR_LINE, json.dumps(args.kit_version))
         if "__ZCKIT_VERSION__" in js:
-            fail("ui_skin.js has an unquoted __ZCKIT_VERSION__ placeholder")
+            fail("ui_skin.js still contains a raw __ZCKIT_VERSION__ after baking")
 
     html = html_path.read_text(encoding="utf-8", newline="")
 

@@ -87,7 +87,12 @@
   // -------------------------------------------------------------- api helpers
   function api(path, opts) {
     var headers = { 'Content-Type': 'application/json' };
-    if (TOKEN && TOKEN.indexOf('__ZCA_TOKEN__') < 0) headers['x-zca-token'] = TOKEN;
+    // Format check, NOT a placeholder-string check: the injector replaces the
+    // placeholder everywhere in this file, so an indexOf('<placeholder>')
+    // guard would silently become indexOf('<token>') — always false — and
+    // the token header would never be sent (2026-09-28 incident: every API
+    // call 401'd because the header was never attached).
+    if (TOKEN && /^[0-9a-f]{64}$/.test(TOKEN)) headers['x-zca-token'] = TOKEN;
     return fetch(API + path, Object.assign({
       method: 'GET',
       headers: headers

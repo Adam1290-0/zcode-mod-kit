@@ -9,7 +9,11 @@
   // every failure; result lands in window.__zkitUpdate and the panel renders
   // a banner row while remote > local.
   (function () {
-    if (String(KIT_VERSION).indexOf("__ZCKIT_VERSION__") >= 0) return; // not baked
+    // Format check, NOT a placeholder-string check: the injector replaces the
+    // placeholder everywhere in this file, so an indexOf('<placeholder>')
+    // guard would become indexOf('<version>') >= 0 after baking — always true
+    // — and the update check would silently never run.
+    if (!/^[0-9]+(\.[0-9]+)*$/.test(String(KIT_VERSION))) return; // not baked
     try {
       var today = new Date().toISOString().slice(0, 10);
       if (localStorage.getItem("zkit_last_check") === today) return;

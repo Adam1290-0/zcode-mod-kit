@@ -341,7 +341,18 @@
   }
 
   function refresh() {
-    api('/api/state').then(render);
+    api('/api/state').then(function (s) {
+      if (s && s.error === 'service-token-not-ready' && !refresh._retried) {
+        // The server booted before its token file was readable and its
+        // lazy re-read has not happened yet. One retry after a short wait
+        // usually heals it; only surface the error if the retry fails too.
+        refresh._retried = true;
+        setMsg('服务启动中，3 秒后自动重试…', true);
+        setTimeout(function () { refresh._retried = false; refresh(); }, 3000);
+        return;
+      }
+      render(s);
+    });
   }
 
   function render(s) {
@@ -469,6 +480,14 @@
     api('/api/switch', { method: 'POST', body: JSON.stringify({ id: selectedId }) }).then(function (r) {
       if (r.ok) {
         q('#zca-switch').textContent = '正在重启…';
+      } else if (r.error === 'service-token-not-ready') {
+        q('#zca-switch').textContent = '切换并重启';
+        q('#zca-switch').disabled = false;
+        setMsg('服务启动中，请稍候几秒再试', true);
+      } else if (r.error === 'unauthorized') {
+        q('#zca-switch').textContent = '切换并重启';
+        q('#zca-switch').disabled = false;
+        setMsg('令牌不匹配——请完全退出 ZCode（托盘右键退出）后重新打开', true);
       } else {
         q('#zca-switch').textContent = '切换并重启';
         q('#zca-switch').disabled = false;

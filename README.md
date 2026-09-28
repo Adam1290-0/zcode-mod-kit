@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.2.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.2.3-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -153,6 +153,13 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.2.3
+
+- 🔍 账号切换服务新增**请求形状日志**（`~/.zcode/account-profiles/server.log`，不含 token 值）：UI 报错时日志能精确显示渲染层请求是否带 token、Origin 是什么、被哪个环节拒绝——不再靠猜
+- 🏷️ 401 区分两种模式：`unauthorized`（token 不匹配）与 `service-token-not-ready`（服务启动时 token 未加载，UI 显示"服务启动中"并 3 秒自动重试）
+- 🔁 账号切换服务补齐端口占用自动重试（pin/route 已有；缺失时旧进程占口会导致新服务静默失效、请求全部打到旧进程）
+- 💡 UI 对 `unauthorized` 给出可操作提示（完全退出 ZCode 后重开）
 
 ### v1.2.2
 

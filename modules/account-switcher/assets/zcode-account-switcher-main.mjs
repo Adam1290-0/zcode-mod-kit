@@ -420,6 +420,19 @@ function corsHeaders(req) {
 }
 
 function startServer() {
+  // Request-shape log (like the pin wrapper): one throttled line per request
+  // shape, to a FILE — when the renderer reports errors we can see exactly
+  // what reached the server (token present? origin? which guard rejected).
+  // No token values are ever logged.
+  const seen = {};
+  const serverLog = (line) => {
+    try {
+      const p = path.join(PROFILES_DIR, 'server.log');
+      if (!fs.existsSync(p) || fs.statSync(p).size < 512 * 1024) {
+        fs.appendFileSync(p, new Date().toISOString() + ' ' + line + '\n');
+      }
+    } catch {}
+  };
   const server = http.createServer(async (req, res) => {
     const cors = corsHeaders(req);
     if (req.method === 'OPTIONS') {
@@ -427,10 +440,24 @@ function startServer() {
       res.end();
       return;
     }
+    const shape = req.method + ' ' + (req.url || '').split('?')[0] +
+      ' token=' + (req.headers['x-zca-token'] ? 'yes' : 'no') +
+      ' origin=' + (req.headers.origin === undefined ? '(none)' : req.headers.origin);
+    if (!seen[shape]) {
+      seen[shape] = true;
+      serverLog(shape);
+    }
     // Auth gate: every request (including diag — it reports scan results that
     // hint at the installed setup) must carry the patch-time token.
     if (!tokenOk(req)) {
-      json(res, cors, 401, { ok: false, error: 'unauthorized' });
+      // Distinguish the two failure modes so the UI (and the log) tell the
+      // user something actionable instead of a bare "unauthorized".
+      const empty = !AUTH_TOKEN && !refreshToken();
+      serverLog(shape + ' -> 401 (' + (empty ? 'token not loaded' : 'mismatch') + ')');
+      json(res, cors, 401, {
+        ok: false,
+        error: empty ? 'service-token-not-ready' : 'unauthorized',
+      });
       return;
     }
     const url = (req.url || '').split('?')[0];
@@ -469,7 +496,28 @@ function startServer() {
     }
   });
 
-  server.on('error', (e) => log('server error', e));
+  server.on('error', (e) => {
+    if (e && e.code === 'EADDRINUSE') {
+      // Port owned by another process (e.g. a lingering old instance): retry
+      // so this one takes over when the owner dies — same recovery contract
+      // as the pin/route wrappers. Without this the NEW server silently never
+      // starts and every request hits the OLD process with its stale token.
+      if (!startServer._retry) {
+        log('port busy, retrying every 3s');
+        startServer._retry = setInterval(() => {
+          try {
+            server.listen(PORT, '127.0.0.1', () => {
+              clearInterval(startServer._retry);
+              startServer._retry = null;
+              log('listening on 127.0.0.1:' + PORT + ' (recovered)');
+            });
+          } catch { /* retry next tick */ }
+        }, 3000);
+      }
+    } else {
+      log('server error', e);
+    }
+  });
   server.listen(PORT, '127.0.0.1', () => log('listening on 127.0.0.1:' + PORT));
   return server;
 }

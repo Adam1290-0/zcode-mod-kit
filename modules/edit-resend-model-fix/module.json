@@ -1,0 +1,13 @@
+{
+  "slug": "edit-resend-model-fix",
+  "display_name": "编辑重发回放修正",
+  "version": "1.0.0",
+  "description": "修编辑重发/重试后会话设置不接管：SJo(startCanonicalIntent) 回放时不再携带原始 intent 里已过时的 modelSelection/mode/planEnabled，让下游回退到当前会话的模型、模式与计划开关。锚点在 zcode.cjs 中唯一。",
+  "order": 65,
+  "targets": [
+    "zcode-cjs"
+  ],
+  "markers": [
+    "zcode-editresend-model-fix"
+  ]
+}

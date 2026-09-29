@@ -40,7 +40,7 @@ Hard rules:
    | `out/renderer/index.html` | skin-manager, account-switcher, route-override, pin |
    | `out/main/index.js` | account-switcher (import), usage-bar (append line) |
    | `out/host/index.js` | snapshot-kill (may legitimately be gone) |
-   | `resources/glm/zcode.cjs` (loose file) | route-override `/*zro*/`, pin `/*zpin*/` |
+   | `resources/glm/zcode.cjs` (loose file) | route-override `/*zro*/`, pin `/*zpin*/`, edit-resend-model-fix `zcode-editresend-model-fix` |
 
 4. Update this file with the new version number and any changed anchors, then
    hand each module owner the go-ahead to run Step 2 for their module.
@@ -63,6 +63,7 @@ Hard rules:
 | account-switcher (order 40) | `out/main/index.js` import + renderer `zcode-account-switcher` | menu item regex `^(断开连接\|连接使用\|退出登录\|登出\|Disconnect\|Connect\|Log ?out\|Sign ?out)$` (normalized, ≤16 chars); settings nav `aria-label="主要项"/"Sections"`; model-provider description text; token baked as `var TOKEN = '<hex64>'` |
 | snapshot-kill (order 50) | `out/host/index.js` `zcode-snapshot-kill-switch` | count symbols `RepoSnapshotSidecarService`, `captureBeforePromptUnsafe`, `flushActiveUpload`, `RepoSnapshotUploadWorker`; if all zero the module degrades to `[NOT-NEEDED]` (exit 0) — that is correct behavior, not a failure |
 | usage-bar (order 60) | `out/main/index.js` append line + `[zusage]` | `out/main/index.js` exists and its tail accepts an appended import; loader uses only stable Electron APIs (`BrowserWindow`, `ipcMain`, `webContents`) |
+| edit-resend-model-fix (order 65) | `zcode.cjs` `zcode-editresend-model-fix` (inside `SJo` re-run) | anchor `modelSelection:o.intent.modelSelection,mode:o.intent.mode,planEnabled:o.intent.planEnabled,` matches EXACTLY once; if the minified shape drifts, refuse (exit 2) and report the new text |
 
 UI text anchors may live in renderer chunk files
 (`out/renderer/assets/*.js`) on chunk-split builds — grep the whole renderer

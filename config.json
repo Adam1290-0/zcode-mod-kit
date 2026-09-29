@@ -1,0 +1,13 @@
+{
+  "selections": {
+    "route-override": true,
+    "pin": true,
+    "skin-manager": true,
+    "account-switcher": true,
+    "snapshot-kill": true,
+    "usage-bar": true,
+    "edit-resend-model-fix": true
+  },
+  "last_patched_size": 293923869,
+  "last_zcode_version": "3.14.3"
+}

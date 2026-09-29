@@ -50,7 +50,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.4.1"
+KIT_VERSION = "1.5.0"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -67,6 +67,8 @@ LABELS = {
     "snapshot-kill": "SNAP   repo-snapshot upload kill-switch",
     "usage-bar": "USAGE  token usage statusbar (zusage)",
     "edit-resend-model-fix": "EDITFIX edit-resend replays CURRENT model/mode",
+    "usage-stats-fallback": "HISTFIX usage page backfills pre-09 message tokens",
+    "zombie-cleanup": "ZOMBIE  kill orphaned MCP procs on exit",
 }
 ORDER_HINT = {
     "route-override": "cjs chain first, pin wraps outside it",
@@ -76,6 +78,8 @@ ORDER_HINT = {
     "snapshot-kill": "static gate in out/host/index.js",
     "usage-bar": "one import line at the tail of out/main/index.js",
     "edit-resend-model-fix": "drops 3 stale fields in zcode.cjs SJo re-run",
+    "usage-stats-fallback": "Xkr 2 insertions in zcode.cjs usage query",
+    "zombie-cleanup": "shutdown handler fires powershell cleanup script",
 }
 
 BANNER_LINES = [

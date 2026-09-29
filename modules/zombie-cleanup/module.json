@@ -1,0 +1,9 @@
+{
+  "slug": "zombie-cleanup",
+  "display_name": "僵尸进程清理",
+  "version": "1.0.0",
+  "description": "zcode.cjs 退出钩子自动清理孤儿 MCP 进程：在 shutdown handler 内注入 powershell 调用 cleanup_mcp_zombies.ps1（白名单制，只杀父进程已死的 node 子进程） | order 75 zcode-cjs only",
+  "order": 75,
+  "targets": ["zcode-cjs"],
+  "markers": ["zcode-zombie-cleanup"]
+}

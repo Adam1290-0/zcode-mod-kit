@@ -93,6 +93,8 @@ Hard rules:
 | snapshot-kill (order 50) | `out/host/index.js` `zcode-snapshot-kill-switch` | count symbols `RepoSnapshotSidecarService`, `captureBeforePromptUnsafe`, `flushActiveUpload`, `RepoSnapshotUploadWorker`; if all zero the module degrades to `[NOT-NEEDED]` (exit 0) — that is correct behavior, not a failure |
 | usage-bar (order 60) | `out/main/index.js` append line + `[zusage]` | `out/main/index.js` exists and its tail accepts an appended import; loader uses only stable Electron APIs (`BrowserWindow`, `ipcMain`, `webContents`) |
 | edit-resend-model-fix (order 65) | `zcode.cjs` `zcode-editresend-model-fix` (inside `SJo` re-run) | anchor `modelSelection:o.intent.modelSelection,mode:o.intent.mode,planEnabled:o.intent.planEnabled,` matches EXACTLY once; if the minified shape drifts, refuse (exit 2) and report the new text |
+| usage-stats-fallback (order 70) | `zcode.cjs` `zusage-fb-day` + `zusage-fb-merge` (inside `Xkr`) | anchors `let R=e.prepare(` and `return{totals:{` each match EXACTLY once inside Xkr body |
+| zombie-cleanup (order 75) | `zcode.cjs` `zcode-zombie-cleanup` (shutdown handler) | anchor `f(),n(eNi(_))` matches EXACTLY once |
 
 UI text anchors may live in renderer chunk files
 (`out/renderer/assets/*.js`) on chunk-split builds — grep the whole renderer

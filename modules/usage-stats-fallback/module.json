@@ -1,0 +1,14 @@
+{
+  "slug": "usage-stats-fallback",
+  "display_name": "历史用量回退",
+  "version": "1.0.0",
+  "description": "zcode.cjs Xkr(queryAppUsage) 回退：当 model_usage 无记录的时间段，从 message.data.tokens 旧格式聚合用量，恢复 2026-09-01 前的历史数据 | order 70 zcode-cjs only",
+  "order": 70,
+  "targets": [
+    "zcode-cjs"
+  ],
+  "markers": [
+    "zusage-fb-day",
+    "zusage-fb-merge"
+  ]
+}

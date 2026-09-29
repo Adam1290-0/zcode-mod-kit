@@ -18,9 +18,9 @@
 | account-switcher | ZCode Account Switcher v1.0.2 | [zcode-account-switcher](https://github.com/Adam1290-0/zcode-account-switcher) |
 | snapshot-kill | ZCode 安全补丁 v1.1.0 | —（并入整合包） |
 | usage-bar | zcode-token-usage-statusbar | [xhwxt/zcode-token-usage-statusbar](https://github.com/xhwxt/zcode-token-usage-statusbar)（第三方，**MIT 允许二开**，集成维护并保留原许可） |
-| edit-resend-model-fix | 对话逻辑补丁（原创） | —（并入整合包） |
-| usage-stats-fallback | 历史用量统计修复（原创） | —（并入整合包） |
-| zombie-cleanup | 僵尸进程清理（原创） | —（并入整合包） |
+| edit-resend-model-fix | 对话逻辑补丁 | —（并入整合包） |
+| usage-stats-fallback | 历史用量统计修复 | —（并入整合包） |
+| zombie-cleanup | 僵尸进程清理 | —（并入整合包） |
 
 ---
 

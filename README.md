@@ -63,6 +63,21 @@
 - 每个窗口常驻悬浮条：今日 token / 请求 / 工具调用 / 会话用量实时显示（常驻本地 python 泵驱动）
 - 子代理面板、汇总聚合、历史查询；mtime 热更新免重启
 
+### 🔄 edit-resend-model-fix — 编辑重发回放修正
+
+- 修「编辑重发 / 重试后新选模型不接管」：zcode.cjs 的 `SJo`（startCanonicalIntent）回放时不再携带发送时刻冻结的旧 `modelSelection`/`mode`/`planEnabled`，会话回落到当前设置
+- 锚点唯一校验 + `node --check` 双向语法校验，版本漂移自锁
+
+### 📈 usage-stats-fallback — 历史用量回退
+
+- 官方统计页（设置→使用统计）在 `model_usage` 表无记录的时间段回退查询 `message.data.tokens` 旧格式聚合，恢复 2026-09-01 前的历史用量数据
+- 双锚点唯一校验（Xkr 函数体内各 1 次），版本漂移自锁
+
+### 🧹 zombie-cleanup — 僵尸进程清理
+
+- ZCode 退出钩子自动清理孤儿 MCP 子进程（白名单制：wigolo/filesystem/memory/github/sequential-thinking/acct 六类，只杀父进程已死的 node 进程）
+- 锚点唯一校验 + `node --check` 语法校验，byte-exact uninject 还原
+
 ---
 
 <a name="english"></a>
@@ -164,7 +179,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 ### v1.4.1
 
-- ✅ 适配 ZCode **3.14.4**（四注入目标与全部模块锚点核验存活，7 模块全零改动，跨 7 会话窗口协作完成）
+- ✅ 适配 ZCode **3.14.4**（四注入目标与全部模块锚点核验存活，9 模块全零改动，跨 7 会话窗口协作完成）
 - 🐛 修复注入阶段弹球动画清行残留：改为 ANSI 清行序列，长行不再叠加刷屏
 - 📊 usage-bar (zusage.py) 同步历史用量回退逻辑（message.data.tokens 旧格式聚合）
 

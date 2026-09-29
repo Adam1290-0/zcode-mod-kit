@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.4.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -105,7 +105,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 7 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3（3.11.2 及更早见各模块历史 README） |
+| 全部 7 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4（3.11.2 及更早见各模块历史 README） |
 
 > ⚠️ This is a **community third-party patch suite**. It modifies ZCode's `app.asar` and `zcode.cjs`, is **not affiliated with ZCode**, and every module can break on a ZCode update. Read [DISCLAIMER.md](DISCLAIMER.md) before use. ZCode is closed-source and updates frequently — if your version is not listed, do not patch; open an issue with your version number.
 
@@ -148,11 +148,17 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 7 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 |
+| 全部 7 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.4.1
+
+- ✅ 适配 ZCode **3.14.4**（四注入目标与全部模块锚点核验存活，7 模块全零改动，跨 7 会话窗口协作完成）
+- 🐛 修复注入阶段弹球动画清行残留：改为 ANSI 清行序列，长行不再叠加刷屏
+- 📊 usage-bar (zusage.py) 同步历史用量回退逻辑（message.data.tokens 旧格式聚合）
 
 ### v1.4.0
 

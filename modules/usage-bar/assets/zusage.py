@@ -141,9 +141,49 @@ def session_usage(con, sid):
     }
 
 
-def range_usage(con, start_ms, end_ms):
-    # 末尾三列（reasoning/retry/cache_write）是 v30/v31 追加，CLI 老代码按索引 0-4 取值不受影响
+_MODEL_USAGE_FIRST_AT = None  # cached lazy
+
+
+def _model_usage_first_at(con):
+    """返回 model_usage 表的 earliest started_at（ms），只查一次并缓存。
+    早于此时间戳的日期段，回退至 message.data.tokens 聚合旧格式用量。"""
+    global _MODEL_USAGE_FIRST_AT
+    if _MODEL_USAGE_FIRST_AT is None:
+        r = con.execute("select min(started_at) from model_usage where started_at is not null").fetchone()
+        _MODEL_USAGE_FIRST_AT = r[0] if r and r[0] else 0
+    return _MODEL_USAGE_FIRST_AT
+
+
+def _message_range_usage(con, start_ms, end_ms):
+    """Fallback: 从 message.data.tokens 聚合单个时间窗口的旧格式用量。
+    返回与 model_usage 查询一致的 9 列元组。
+    computed_total_tokens = input + output（与 ZCode 当前口径一致）。"""
     return con.execute(
+        """select count(*),
+                  coalesce(sum(cast(json_extract(data,'$.tokens.input') as integer)),0),
+                  coalesce(sum(cast(json_extract(data,'$.tokens.output') as integer)),0),
+                  coalesce(sum(cast(json_extract(data,'$.tokens.cache.read') as integer)),0),
+                  coalesce(sum(
+                    cast(coalesce(json_extract(data,'$.tokens.input'),0) as integer) +
+                    cast(coalesce(json_extract(data,'$.tokens.output'),0) as integer)
+                  ),0),
+                  0,  -- duration_ms not in legacy format
+                  coalesce(sum(cast(json_extract(data,'$.tokens.reasoning') as integer)),0),
+                  0,  -- retry_count not in legacy format
+                  coalesce(sum(cast(json_extract(data,'$.tokens.cache.write') as integer)),0)
+           from message
+           where time_created >= ? and time_created < ?
+             and json_extract(data,'$.semantics.kind')='assistant_response'
+             and json_extract(data,'$.tokens') is not null""",
+        (start_ms, end_ms),
+    ).fetchone()
+
+
+def range_usage(con, start_ms, end_ms):
+    """返回时间窗口的用量聚合（9 列元组）。
+    优先 model_usage 表；若当天无记录且窗口早于 model_usage 起点，
+    回退至 message.data.tokens 旧格式。"""
+    r = con.execute(
         """select count(*), coalesce(sum(input_tokens),0), coalesce(sum(output_tokens),0),
                   coalesce(sum(cache_read_input_tokens),0), coalesce(sum(computed_total_tokens),0),
                   coalesce(sum(duration_ms),0), coalesce(sum(reasoning_tokens),0),
@@ -151,6 +191,9 @@ def range_usage(con, start_ms, end_ms):
            from model_usage where status='completed' and completed_at between ? and ?""",
         (start_ms, end_ms),
     ).fetchone()
+    if r[0] == 0 and end_ms < _model_usage_first_at(con):
+        return _message_range_usage(con, start_ms, end_ms)
+    return r
 
 
 def daily_usage(con, days):

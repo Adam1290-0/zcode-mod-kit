@@ -1,5 +1,34 @@
 # Upgrade Playbook — adapting the kit to a new ZCode version
 
+## CURRENT ROUND STATUS (2026-09-29, ZCode 3.14.4 — COMPLETED, all clear)
+
+| Module | Window (sessionId) | Result | Method |
+|--------|---------------------|--------|--------|
+| snapshot-kill | sess_74cf412e | ✅ NOT-NEEDED (4 symbols = 0) | resume via session-dispatch |
+| edit-resend | sess_c70acbe6 | ✅ no change (anchor 1 hit) | resume via session-dispatch |
+| pin | sess_057a52bd | ✅ no change (all anchors, zero residue) | resume via session-dispatch |
+| route-override | sess_39ba00ea (model creation failed → fallback new session) | ✅ no change | resume + --fallback |
+| account-switcher | sess_186ebe95 | ✅ no change (v1.0.8 mechanisms intact) | resume via session-dispatch |
+| skin-manager + usage-bar | sess_1842e23a | ✅ both no change | resume via session-dispatch |
+| usage-stats (zcode.cjs backfill) | sess_e488e7d1 (context stuck → new session blocked) | ⚠️ zusage.py CLI OK, zcode.cjs call chain reshaped (kRn entry, Xkr impl) → manual re-patch needed outside mod-kit scope | integrator self-check |
+
+### Round summary
+
+ZCode 3.14.4 is essentially a **no-change release** for mod-kit. All seven
+modules survive with their anchors intact. 0 files were changed across all
+module windows.
+
+The one outlier is the **zcode.cjs usage-stat backfill** — `getAppUsageStats`
+was renamed in 3.14.4 (now `kRn` at offset ~14489395 calling `g.queryAppUsage`).
+The zusage.py CLI fallback (`_message_range_usage`) is DB-compatible and works
+fine. The backfill patch will need manual re-insertion into the new Xkr / cRn
+chain; this is tracked outside the mod-kit module set.
+
+### Reference
+
+- Reference tree: `G:/工作/测试/asar_3.14.4_ref` (shared read-only for all windows)
+- Round execution: integrator → 7 windows via session-dispatch `resume`
+
 ZCode is closed-source and auto-updates. Every update replaces `app.asar` and
 `resources/glm/zcode.cjs`, which **wipes all patches** — that is expected. This
 document defines how the kit is re-verified and re-adapted after each update,

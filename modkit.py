@@ -50,7 +50,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.4.0"
+KIT_VERSION = "1.4.1"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -260,9 +260,9 @@ def find_zcode_root():
 
 # ZCode versions the shipped modules were verified against (kept in sync with
 # each module's own compatibility table; bumped when modules are re-validated)
-# 3.14.3 (2026-09-23): four injection targets unchanged; snapshot-kill degrades
-# gracefully (RepoSnapshotSidecarService subsystem removed upstream).
-VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3"}
+# 3.14.4 (2026-09-29): four injection targets unchanged; all 7 modules verified
+# with zero anchor drift across the 7 module windows.
+VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4"}
 
 
 def read_asar_version(asar_path):
@@ -443,12 +443,12 @@ def _spin(label):
                 c(ball_color + BOLD, "\u25cf") +
                 c(N_PURPLE + DIM, "".join(lane[pos + 1:]) + "]") +
                 " " + c(BOLD, label) + " " + c(DIM, f"{elapsed:3d}s") +
-                "   " + c(DIM, tip) + "  ")
+                "   " + c(DIM, tip) + "  " + "\x1b[K")
         sys.stdout.write(line)
         sys.stdout.flush()
         i += 1
         time.sleep(0.06)
-    sys.stdout.write("\r" + " " * 110 + "\r")
+    sys.stdout.write("\r\x1b[K")
     sys.stdout.flush()
 
 

@@ -9,6 +9,14 @@ from pathlib import Path
 
 SLUG = "zombie-cleanup"
 MARKER = b"zcode-zombie-cleanup"
+CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
+# Pre-kit manual patch (scripts/patch_zcode_mcp_cleanup.py) injected the same
+# payload without the marker. Functionally identical -> count as injected.
+LEGACY_CORE = (
+    b'require("child_process").spawn("powershell",'
+    b'["-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden",'
+    b'"-File","' + CLEANUP_SCRIPT.encode() + b'"'
+)
 
 
 def main() -> None:
@@ -25,7 +33,7 @@ def main() -> None:
         print(f"[{SLUG}] FAIL: target file not found: {tpath}")
         sys.exit(1)
     data = tpath.read_bytes()
-    if MARKER not in data:
+    if MARKER not in data and LEGACY_CORE not in data:
         print(f"[{SLUG}] FAIL: cleanup trigger not found")
         sys.exit(1)
     print(f"[{SLUG}] verified: cleanup trigger injected")

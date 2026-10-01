@@ -417,6 +417,63 @@ def main():
         else:
             check("usage-bar: config python_path seeded real", False, "no config.json")
 
+        # ---- 10. zombie-cleanup ---------------------------------------------
+        # Needs the real shutdown-handler anchor context, unlike MOCK_CJS.
+        ZOMBIE_CJS = (
+            b'"use strict";'
+            b'function rGe(e){let g=r(async _=>{u||(u=!0,e.abort?.(_),'
+            b'await FL(e.cleanup,o),await oGe(),f(),n(eNi(_)))},"shutdown");'
+            b'return g}\n'
+        )
+        work = tmp / "zombie" / "unpacked"
+        cjs = make_tree(work, cjs=ZOMBIE_CJS)
+        zdir = module("zombie-cleanup")
+        zargs = ["--zcode-cjs", str(cjs)]
+        env = dict(os.environ)
+        env["USERPROFILE"] = str(tmp / "zombie" / "home")
+
+        rc, out = run(zdir / "inject.py", zargs, env)
+        check("zombie: inject exit 0", rc == 0, out[-300:])
+        check("zombie: marker present", b"zcode-zombie-cleanup" in cjs.read_bytes())
+        rc, out = run(zdir / "verify.py", zargs, env)
+        check("zombie: verify exit 0", rc == 0, out[-300:])
+        rc, out = run(zdir / "inject.py", zargs, env)
+        check("zombie: re-inject idempotent", rc == 0 and "[SKIP]" in out, out[-300:])
+        rc, out = run(zdir / "uninject.py", zargs, env)
+        check("zombie: uninject exit 0", rc == 0, out[-300:])
+        check("zombie: byte-identical restore", cjs.read_bytes() == ZOMBIE_CJS)
+
+        # legacy unmarked patch (scripts/patch_zcode_mcp_cleanup.py format):
+        # payload present without the module marker -> inject SKIPs, verify ok,
+        # uninject restores the bare anchor.
+        LEGACY = (
+            b'"use strict";'
+            b'function rGe(e){let g=r(async _=>{u||(u=!0,e.abort?.(_),'
+            b'await FL(e.cleanup,o),await oGe(),f(),'
+            b'function(){try{require("child_process").spawn("powershell",'
+            b'["-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden",'
+            b'"-File","C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1",'
+            b'"-Tag","zcode-exit"],{detached:true,stdio:"ignore"}).unref()}'
+            b'catch(e){}}(),n(eNi(_)))},"shutdown");return g}\n'
+        )
+        work2 = tmp / "zombie-legacy" / "unpacked"
+        cjs2 = make_tree(work2, cjs=LEGACY)
+        zargs2 = ["--zcode-cjs", str(cjs2)]
+        env2 = dict(os.environ)
+        env2["USERPROFILE"] = str(tmp / "zombie-legacy" / "home")
+        rc, out = run(zdir / "inject.py", zargs2, env2)
+        check("zombie-legacy: inject SKIPs legacy patch",
+              rc == 0 and "legacy" in out.lower(), out[-300:])
+        check("zombie-legacy: file untouched by skip", cjs2.read_bytes() == LEGACY)
+        rc, out = run(zdir / "verify.py", zargs2, env2)
+        check("zombie-legacy: verify exit 0", rc == 0, out[-300:])
+        rc, out = run(zdir / "uninject.py", zargs2, env2)
+        check("zombie-legacy: uninject exit 0", rc == 0, out[-300:])
+        check("zombie-legacy: payload gone after uninject",
+              b"cleanup_mcp_zombies.ps1" not in cjs2.read_bytes())
+        check("zombie-legacy: anchor restored",
+              cjs2.read_bytes().count(b"f(),n(eNi(_))") == 1)
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

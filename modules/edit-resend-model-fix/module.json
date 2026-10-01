@@ -1,13 +1,15 @@
 {
   "slug": "edit-resend-model-fix",
   "display_name": "编辑重发回放修正",
-  "version": "1.0.0",
-  "description": "修编辑重发/重试后会话设置不接管：SJo(startCanonicalIntent) 回放时不再携带原始 intent 里已过时的 modelSelection/mode/planEnabled，让下游回退到当前会话的模型、模式与计划开关。锚点在 zcode.cjs 中唯一。",
+  "version": "2.2.0",
+  "description": "修编辑重发/重试后不走当前所选模型：cjs SJo 回放剥离冻结的 modelSelection/mode/planEnabled 改 payload 优先 + 双端 schema 放宽 + renderer 编辑(nee)/重试(bi)回调读草稿 ref Bn.current（实时，切完模型立即可用）。v2.0 的 window.__zermSel 渲染快照 / v2.1 的 Qn() 闭包均会拿到过期值，已弃用。适配 3.14.3/3.14.4。",
   "order": 65,
   "targets": [
-    "zcode-cjs"
+    "zcode-cjs",
+    "asar"
   ],
   "markers": [
-    "zcode-editresend-model-fix"
+    "zcode-editresend-model-fix",
+    "zcode-editresend-ui"
   ]
 }

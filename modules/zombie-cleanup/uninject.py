@@ -12,13 +12,19 @@ ANCHOR = b"f(),n(eNi(_))"
 MARKER = b"zcode-zombie-cleanup"
 
 CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
-INSERT = (
-    b"/*zcode-zombie-cleanup*/"
-    b"function(){try{require(\"child_process\").spawn(\"powershell\","
-    b"[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
-    b"\"-File\",\"" + CLEANUP_SCRIPT.encode() + b"\",\"-Tag\",\"zcode-exit\"],"
-    b"{detached:true,stdio:\"ignore\"}).unref()}catch(e){}}(),"
-)
+
+
+def _payload() -> bytes:
+    return (
+        b"function(){try{require(\"child_process\").spawn(\"powershell\","
+        b"[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
+        b"\"-File\",\"" + CLEANUP_SCRIPT.encode() + b"\",\"-Tag\",\"zcode-exit\"],"
+        b"{detached:true,stdio:\"ignore\"}).unref()}catch(e){}}()"
+    )
+
+
+INSERT = b"/*zcode-zombie-cleanup*/" + _payload() + b","
+LEGACY_INSERT = b"f()," + _payload() + b",n(eNi(_))"
 
 
 def main() -> None:
@@ -35,12 +41,17 @@ def main() -> None:
         print(f"[{SLUG}] target file not found: {tpath}")
         sys.exit(1)
     data = tpath.read_bytes()
-    if MARKER not in data:
+
+    if MARKER in data:
+        # injected text is INSERT + ANCHOR together; restore the bare anchor
+        new = data.replace(INSERT + ANCHOR, ANCHOR, 1)
+    elif LEGACY_INSERT in data:
+        new = data.replace(LEGACY_INSERT, ANCHOR, 1)
+    else:
         print(f"[{SLUG}] [SKIP] not injected")
         return
-    new = data.replace(INSERT + ANCHOR, ANCHOR, 1)
-    if MARKER in new:
-        print(f"[{SLUG}] [ERROR] marker still present after uninject")
+    if MARKER in new or LEGACY_INSERT in new:
+        print(f"[{SLUG}] [ERROR] cleanup trigger still present after uninject")
         sys.exit(1)
     tpath.write_bytes(new)
     print(f"[{SLUG}] restored: cleanup trigger removed from shutdown handler")

@@ -20,13 +20,24 @@ ANCHOR = b"f(),n(eNi(_))"
 MARKER = b"zcode-zombie-cleanup"
 
 CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
-INSERT = (
-    b"/*zcode-zombie-cleanup*/"
-    b"function(){try{require(\"child_process\").spawn(\"powershell\","
-    b"[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
-    b"\"-File\",\"" + CLEANUP_SCRIPT.encode() + b"\",\"-Tag\",\"zcode-exit\"],"
-    b"{detached:true,stdio:\"ignore\"}).unref()}catch(e){}}(),"
-)
+
+
+def _payload() -> bytes:
+    """The injected function(){}() snippet, shared by every patch format."""
+    return (
+        b"function(){try{require(\"child_process\").spawn(\"powershell\","
+        b"[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
+        b"\"-File\",\"" + CLEANUP_SCRIPT.encode() + b"\",\"-Tag\",\"zcode-exit\"],"
+        b"{detached:true,stdio:\"ignore\"}).unref()}catch(e){}}()"
+    )
+
+
+INSERT = b"/*zcode-zombie-cleanup*/" + _payload() + b","
+# 2026-09-29 the pre-kit manual patch (scripts/patch_zcode_mcp_cleanup.py)
+# injected the same payload WITHOUT the marker, wedged between f() and
+# n(eNi(_)). It is functionally identical; treat it as already-injected so a
+# reinstall skips instead of failing on "anchor matched 0 times".
+LEGACY_INSERT = b"f()," + _payload() + b",n(eNi(_))"
 
 
 def log(msg: str) -> None:
@@ -72,6 +83,14 @@ def main() -> None:
 
     if MARKER in data:
         log("[SKIP] already injected")
+        return
+
+    # Pre-kit manual patch: payload present without the marker. Upgrading it to
+    # the marked form costs an edit; the payload is byte-identical, so accept
+    # it as injected and SKIP, mirroring the normal idempotency path.
+    if LEGACY_INSERT in data:
+        log("[SKIP] legacy unmarked patch detected; functionally identical, "
+            "leaving as-is")
         return
 
     if data.count(ANCHOR) != 1:

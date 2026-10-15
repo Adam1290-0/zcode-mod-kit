@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.5.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -123,7 +123,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4（3.11.2 及更早见各模块历史 README） |
+| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3（3.11.2 及更早见各模块历史 README） |
 
 > ⚠️ This is a **community third-party patch suite**. It modifies ZCode's `app.asar` and `zcode.cjs`, is **not affiliated with ZCode**, and every module can break on a ZCode update. Read [DISCLAIMER.md](DISCLAIMER.md) before use. ZCode is closed-source and updates frequently — if your version is not listed, do not patch; open an issue with your version number.
 
@@ -166,11 +166,21 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 |
+| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.0
+
+- ✅ 适配 ZCode **3.15.3**（asar 340.5MB）：全部 9 模块跨会话检查完成——pin / route / skin / usage-bar / account-switcher 零锚点漂移；snapshot-kill 保持 NOT-NEEDED；edit-resend 锚点漂移已重写为 v3.0.0；usage-stats-fallback 与 zombie-cleanup 由整合窗口适配
+- 🔄 edit-resend-model-fix → **v3.0.0**：官方半吸收后重写——LCt 回放 payload 优先、retryTurn schema 放宽、renderer nee/zi 读取实时草稿 ref `er.current`（v2 的 Qn() 闭包拿到过期值已弃用）
+- 🧹 zombie-cleanup 支持 3.15.3 新 shutdown 锚点（eNi→z7i 双锚点）
+- 📈 usage-stats-fallback 适配 3.15.3 变量重排（Xkr→h2r、E→C）
+- 🧪 新增 6 项 zombie 3.15.3 回归，全套 **162 项全绿**
+
+
 
 ### v1.5.0
 

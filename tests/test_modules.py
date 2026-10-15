@@ -474,6 +474,47 @@ def main():
         check("zombie-legacy: anchor restored",
               cjs2.read_bytes().count(b"f(),n(eNi(_))") == 1)
 
+        # 3.15.3 variant: shutdown handler uses n(z7i(_)) instead of n(eNi(_)).
+        ZOMBIE_315 = (
+            b'"use strict";'
+            b'function rGe(e){let g=r(async _=>{u||(u=!0,e.abort?.(_),'
+            b'await sF(e.cleanup,o),await sZe(),f(),n(z7i(_)))},"shutdown");'
+            b'return g}\n'
+        )
+        work3 = tmp / "zombie-315" / "unpacked"
+        cjs3 = make_tree(work3, cjs=ZOMBIE_315)
+        zargs3 = ["--zcode-cjs", str(cjs3)]
+        env3 = dict(os.environ)
+        env3["USERPROFILE"] = str(tmp / "zombie-315" / "home")
+        rc, out = run(zdir / "inject.py", zargs3, env3)
+        check("zombie-315: inject exit 0", rc == 0, out[-300:])
+        check("zombie-315: marker present", b"zcode-zombie-cleanup" in cjs3.read_bytes())
+        rc, out = run(zdir / "verify.py", zargs3, env3)
+        check("zombie-315: verify exit 0", rc == 0, out[-300:])
+        rc, out = run(zdir / "uninject.py", zargs3, env3)
+        check("zombie-315: uninject byte-identical", cjs3.read_bytes() == ZOMBIE_315)
+
+        # 3.15.3 legacy unmarked patch shape (z7i variant).
+        LEGACY_315 = (
+            b'"use strict";'
+            b'function rGe(e){let g=r(async _=>{u||(u=!0,e.abort?.(_),'
+            b'await sF(e.cleanup,o),await sZe(),f(),'
+            b'function(){try{require("child_process").spawn("powershell",'
+            b'["-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden",'
+            b'"-File","C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1",'
+            b'"-Tag","zcode-exit"],{detached:true,stdio:"ignore"}).unref()}'
+            b'catch(e){}}(),n(z7i(_)))},"shutdown");return g}\n'
+        )
+        work4 = tmp / "zombie-legacy315" / "unpacked"
+        cjs4 = make_tree(work4, cjs=LEGACY_315)
+        zargs4 = ["--zcode-cjs", str(cjs4)]
+        env4 = dict(os.environ)
+        env4["USERPROFILE"] = str(tmp / "zombie-legacy315" / "home")
+        rc, out = run(zdir / "inject.py", zargs4, env4)
+        check("zombie-legacy315: inject SKIPs legacy patch",
+              rc == 0 and "legacy" in out.lower(), out[-300:])
+        check("zombie-legacy315: file untouched by skip", cjs4.read_bytes() == LEGACY_315)
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

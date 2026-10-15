@@ -50,7 +50,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.5.0"
+KIT_VERSION = "1.6.0"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -266,7 +266,7 @@ def find_zcode_root():
 # each module's own compatibility table; bumped when modules are re-validated)
 # 3.14.4 (2026-09-29): four injection targets unchanged; all 7 modules verified
 # with zero anchor drift across the 7 module windows.
-VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4"}
+VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4", "3.15.3"}
 
 
 def read_asar_version(asar_path):

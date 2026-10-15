@@ -24,16 +24,16 @@ INSERT1 = (
     b"from message where time_created>=? and time_created<? "
     b"and json_extract(data,\\'$.semantics.kind\\')=\\'assistant_response\\' "
     b"and json_extract(data,\\'$.tokens\\') is not null group by dayIndex')"
-    b".all(s,a,n,o);"
-    b"for(let L of qq){let U=E.get(L.dayIndex);"
+    b".all(i,a,n,o);"
+    b"for(let L of qq){let U=C.get(L.dayIndex);"
     b"U||(U={dayIndex:L.dayIndex,totalTokens:0,turnCount:0,toolCallCount:0},"
-    b"E.set(L.dayIndex,U));U.totalTokens+=Number(L.totalTokens)}}"
+    b"C.set(L.dayIndex,U));U.totalTokens+=Number(L.totalTokens)}}"
 )
 INSERT2 = (
     b";/*zusage-fb-merge*/"
-    b"let mt=0,mi=0;for(let L of E.values()){mt+=L.totalTokens;mi+=L.turnCount}"
-    b";l.totalTokens=(Number(l.totalTokens??0)+mt)||0"
-    b";l.modelRequestCount=Number(l.modelRequestCount??0);"
+    b"let mt=0,mi=0;for(let L of C.values()){mt+=L.totalTokens;mi+=L.turnCount}"
+    b";c.totalTokens=(Number(c.totalTokens??0)+mt)||0"
+    b";c.modelRequestCount=Number(c.modelRequestCount??0);"
 )
 
 

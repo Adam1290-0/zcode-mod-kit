@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""edit-resend-model-fix v2.2: cjs + renderer verifier for zcode-mod-kit.
+"""edit-resend-model-fix v3: cjs + renderer verifier for zcode-mod-kit.
 
-Exit 0 means v2.2 is fully applied on BOTH targets:
-  cjs      - v2 tag present, stale fields gone, schema widened
-  renderer - stash + widened schema + nee/bi read the live draft ref
-             Bn.current (NOT the stale window.__zermSel snapshot nor a stale
-             Qn() closure)
+Exit 0 means v3 is fully applied on BOTH targets (ZCode 3.15.3).
 """
 import argparse
 import subprocess
@@ -15,28 +11,23 @@ from pathlib import Path
 
 SLUG = "edit-resend-model-fix"
 
-STALE3 = (b"modelSelection:o.intent.modelSelection,"
-          b"mode:o.intent.mode,planEnabled:o.intent.planEnabled,")
-V1_COMMENT = b"/*[zcode-editresend-model-fix]*/"
-FINAL_SJO = (b"/*[zcode-editresend-model-fix:v2]*/"
-             b"modelSelection:n.payload?.modelSelection,"
-             b"mode:n.payload?.mode,"
-             b"planEnabled:n.payload?.planEnabled!==void 0?"
-             b"n.payload.planEnabled:void 0,")
-CJS_SCHEMA_NEW = (b"retryTurn:m.object({target:NR,modelSelection:Pu.optional(),"
-                  b"mode:Npe.optional(),planEnabled:m.boolean().optional()})")
+LC_STALE = (b"modelSelection:o.intent.modelSelection,"
+            b"mode:o.intent.mode,planEnabled:o.intent.planEnabled,")
+LC_PATCHED = (b"/*[zcode-editresend-model-fix:v3]*/"
+              b"modelSelection:n.payload?.modelSelection??o.intent.modelSelection,"
+              b"mode:n.payload?.mode??o.intent.mode,"
+              b"planEnabled:n.payload?.planEnabled!==void 0?"
+              b"n.payload.planEnabled:o.intent.planEnabled,")
+RT_NEW = (b"retryTurn:m.object({target:BA,modelSelection:Nl.optional(),"
+          b"mode:Lme.optional(),planEnabled:m.boolean().optional()}),"
+          b"setAssistantFeedback")
 
-WM = (b"...window.__zermSel?{modelSelection:window.__zermSel."
-      b"modelSelection,mode:window.__zermSel.mode,"
-      b"planEnabled:window.__zermSel.planEnabled}:{}")
-QN = (b"...(Qn()?{modelSelection:Qn().modelSelection,mode:Qn().mode,"
-      b"planEnabled:Qn().planEnabled}:{})")
-BN = (b"...(Bn.current.modelSelection?{modelSelection:Bn.current."
-      b"modelSelection,mode:Bn.current.mode,"
-      b"planEnabled:Bn.current.planEnabled}:{})")
-RS_SCHEMA_NEW_FRAG = (b"retryTurn:ni({target:Ni,modelSelection:va.optional(),"
-                      b"mode:Na.optional(),planEnabled:Ot().optional()})")
-STASH_FINAL = b"window.__zermSel={mode:y.mode,planEnabled:"
+ER_SPREAD = (b"...(er.current.modelSelection?{modelSelection:er.current."
+             b"modelSelection,mode:er.current.mode,"
+             b"planEnabled:er.current.planEnabled}:{})")
+NEE_FINAL = (b"let l=await Fr(`editUserQuery`,{target:e,newText:n,"
+             b"workspaceMode:i,conversationQuotes:a," + ER_SPREAD)
+BI_FINAL = (b"return Fr(`retryTurn`,{target:e," + ER_SPREAD)
 
 
 def log(msg: str) -> None:
@@ -64,7 +55,7 @@ def node_check(data: bytes, label: str) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=f"{SLUG}: verify v2.2 state")
+    ap = argparse.ArgumentParser(description=f"{SLUG}: verify v3 state")
     ap.add_argument("--dir", default=None, help="unpacked asar root")
     ap.add_argument("--zcode-cjs", default=None,
                     help="path to resources/glm/zcode.cjs")
@@ -80,17 +71,15 @@ def main() -> None:
     if not cjs.is_file():
         fail(f"zcode.cjs not found: {cjs}")
     data = cjs.read_bytes()
-    if FINAL_SJO not in data:
-        problems.append("cjs: v2 replay fields missing")
-    if STALE3 in data:
-        problems.append("cjs: stale fields still present")
-    if V1_COMMENT in data:
-        problems.append("cjs: v1 comment not upgraded to v2")
-    if CJS_SCHEMA_NEW not in data:
-        problems.append("cjs: schema not widened")
+    if LC_PATCHED not in data:
+        problems.append("cjs: LCt payload-priority replay missing")
+    if LC_STALE in data:
+        problems.append("cjs: frozen replay still present")
+    if RT_NEW not in data:
+        problems.append("cjs: retryTurn schema not widened")
     if not problems:
         node_check(data, "cjs")
-        log("cjs verified: v2 replay + widened schema")
+        log("cjs verified: payload-priority + widened retryTurn schema")
 
     # ---- renderer ----
     if args.dir:
@@ -101,33 +90,30 @@ def main() -> None:
                 if js.stat().st_size < 100_000:
                     continue
                 rd = js.read_bytes()
-                if (b"zcode-editresend-ui" in rd or BN in rd or QN in rd
-                        or WM in rd or STASH_FINAL in rd):
+                if (b"zcode-editresend-ui" in rd or ER_SPREAD in rd
+                        or NEE_FINAL in rd or BI_FINAL in rd):
                     rcands.append(js)
         if len(rcands) != 1:
             problems.append(f"renderer: {len(rcands)} candidate chunks "
                             "(expected 1)")
         else:
             rd = rcands[0].read_bytes()
-            if BN not in rd:
-                problems.append("renderer: nee/bi not reading Bn.current")
-            if WM in rd:
-                problems.append("renderer: stale window.__zermSel spread "
-                                "still present")
-            if QN in rd:
-                problems.append("renderer: stale Qn() spread still present")
-            if STASH_FINAL not in rd:
-                problems.append("renderer: composer stash missing")
-            if RS_SCHEMA_NEW_FRAG not in rd:
-                problems.append("renderer: schema not widened")
+            if ER_SPREAD not in rd:
+                problems.append("renderer: er.current spread missing")
+            if NEE_FINAL not in rd:
+                problems.append("renderer: nee insertion missing")
+            if BI_FINAL not in rd:
+                problems.append("renderer: bi insertion missing")
+            if rd.count(b"zcode-editresend-ui") != 2:
+                problems.append("renderer: ui marker count != 2")
             if not problems:
                 node_check(rd, "renderer")
-                log(f"renderer verified: Bn.current live read + stash + "
-                    f"schema ({rcands[0].name})")
+                log(f"renderer verified: er.current spread in nee/bi "
+                    f"({rcands[0].name})")
 
     if problems:
         fail("verify failed: " + "; ".join(problems))
-    log("verified: edit-resend v2.2 fully applied")
+    log("verified: edit-resend v3 fully applied")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,11 @@ import tempfile
 from pathlib import Path
 
 SLUG = "zombie-cleanup"
-ANCHOR = b"f(),n(eNi(_))"
+# ZCode renames minified symbols between releases; the shutdown call shape is
+# f(),n(<exitCodeForSignal>(_)) — the inner function name changed from eNi
+# (<= 3.14.x) to z7i (3.15.x). Support both; exactly one must match.
+ANCHOR_314 = b"f(),n(eNi(_))"
+ANCHOR_315 = b"f(),n(z7i(_))"
 MARKER = b"zcode-zombie-cleanup"
 
 CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
@@ -32,12 +36,20 @@ def _payload() -> bytes:
     )
 
 
-INSERT = b"/*zcode-zombie-cleanup*/" + _payload() + b","
-# 2026-09-29 the pre-kit manual patch (scripts/patch_zcode_mcp_cleanup.py)
-# injected the same payload WITHOUT the marker, wedged between f() and
-# n(eNi(_)). It is functionally identical; treat it as already-injected so a
-# reinstall skips instead of failing on "anchor matched 0 times".
-LEGACY_INSERT = b"f()," + _payload() + b",n(eNi(_))"
+# Pre-kit manual patch (scripts/patch_zcode_mcp_cleanup.py) injected the same
+# payload WITHOUT the marker, wedged between f() and n(...). It is functionally
+# identical; treat it as already-injected so a reinstall skips instead of
+# failing on "anchor matched 0 times".
+LEGACY_INSERT_314 = b"f()," + _payload() + b",n(eNi(_))"
+LEGACY_INSERT_315 = b"f()," + _payload() + b",n(z7i(_))"
+
+
+def find_anchor(data: bytes) -> bytes:
+    """Return the matching anchor bytes, or None when neither matches."""
+    for anchor in (ANCHOR_314, ANCHOR_315):
+        if data.count(anchor) >= 1:
+            return anchor
+    return None
 
 
 def log(msg: str) -> None:
@@ -85,19 +97,23 @@ def main() -> None:
         log("[SKIP] already injected")
         return
 
-    # Pre-kit manual patch: payload present without the marker. Upgrading it to
-    # the marked form costs an edit; the payload is byte-identical, so accept
-    # it as injected and SKIP, mirroring the normal idempotency path.
-    if LEGACY_INSERT in data:
-        log("[SKIP] legacy unmarked patch detected; functionally identical, "
-            "leaving as-is")
-        return
+    # Pre-kit manual patches: payload present without the marker (either
+    # minified-symbol generation). Functionally identical — accept and SKIP.
+    for legacy in (LEGACY_INSERT_314, LEGACY_INSERT_315):
+        if legacy in data:
+            log("[SKIP] legacy unmarked patch detected; functionally identical, "
+                "leaving as-is")
+            return
 
-    if data.count(ANCHOR) != 1:
-        fail(f"anchor matched {data.count(ANCHOR)} times (expected 1); "
-             f"refusing to inject (version drift?)", 2)
+    anchor = find_anchor(data)
+    if anchor is None or data.count(anchor) != 1:
+        log(f"anchor probe: eNi-version={data.count(ANCHOR_314)} "
+            f"z7i-version={data.count(ANCHOR_315)}")
+        fail("anchor matched 0 or >1 times (expected exactly 1); "
+             "refusing to inject (version drift?)", 2)
 
-    new = data.replace(ANCHOR, INSERT + ANCHOR, 1)
+    insert = b"/*zcode-zombie-cleanup*/" + _payload() + b","
+    new = data.replace(anchor, insert + anchor, 1)
 
     if not node_check(new):
         fail("syntax check failed; nothing written", 3)

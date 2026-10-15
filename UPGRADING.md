@@ -1,5 +1,21 @@
 # Upgrade Playbook — adapting the kit to a new ZCode version
 
+## ROUND: ZCode 3.15.3 (2026-10-13 update) — COMPLETED
+
+| Module | Result | Notes |
+|--------|--------|-------|
+| route-override | no change | all anchors alive; real-file roundtrip byte-identical |
+| pin | no change | v1.0.4; six renderer anchors alive |
+| skin-manager | no change | v2.1.1; composer chain + CSS vars intact |
+| account-switcher | no change | v1.0.8 mechanisms intact |
+| snapshot-kill | NOT-NEEDED (4 symbols = 0) | subsystem still absent |
+| usage-bar | no change | append target intact |
+| edit-resend-model-fix | REWRITTEN v3.0.0 | every anchor drifted; LCt payload-priority + retryTurn schema + er.current draft ref; real-tree mock byte-identical |
+| usage-stats-fallback | integrator-fixed | Xkr->h2r, vars s->i/E->C/l->c |
+| zombie-cleanup | integrator-fixed | shutdown anchor eNi->z7i (dual-anchor), legacy 315 path |
+
+Reference tree: `G:/工作/测试/asar_3.15.3_ref` (read-only). VERIFIED_VERSIONS includes 3.15.3. 162 tests green.
+
 ## CURRENT ROUND STATUS (2026-09-29, ZCode 3.14.4 — COMPLETED, all clear)
 
 | Module | Window (sessionId) | Result | Method |

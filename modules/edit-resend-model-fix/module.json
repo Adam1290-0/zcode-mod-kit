@@ -1,8 +1,8 @@
 {
   "slug": "edit-resend-model-fix",
   "display_name": "编辑重发回放修正",
-  "version": "2.2.0",
-  "description": "修编辑重发/重试后不走当前所选模型：cjs SJo 回放剥离冻结的 modelSelection/mode/planEnabled 改 payload 优先 + 双端 schema 放宽 + renderer 编辑(nee)/重试(bi)回调读草稿 ref Bn.current（实时，切完模型立即可用）。v2.0 的 window.__zermSel 渲染快照 / v2.1 的 Qn() 闭包均会拿到过期值，已弃用。适配 3.14.3/3.14.4。",
+  "version": "3.0.0",
+  "description": "修编辑重发/重试后不走当前所选模型（ZCode 3.15.3）：cjs LCt(startCanonicalIntent) 回放改 payload 优先（官方已吸收 editUserQuery 的 modelSelection schema 但 LCt 仍冻结旧值）+ cjs retryTurn schema 放宽 + renderer 编辑(nee)/重试(zi)回调读草稿 ref er.current（实时，切完模型立即可用）。v2 的教训：禁用渲染快照与闭包读，只读 useRef。适配 3.14.3/3.14.4/3.15.3。",
   "order": 65,
   "targets": [
     "zcode-cjs",

@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -171,6 +171,13 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.1
+
+- 🐛 修复 GitHub issue #1：ZCode 每次启动的 storage-prepare 迁移 worker 会连同加载 zcode.cjs 头部的 route/pin wrapper，在短驻 worker 里启动本地服务 + fs.watch + fetch patch，造成 EADDRINUSE 重试与 `MaxListenersExceededWarning` 刷屏。两条 require 行加守卫 `isMainThread && !--prepare-storage`，worker 直接跳过（route v1.0.8 / pin v1.0.5）
+- 📌 install.bat 顶部 banner 显示补丁包版本号（动态读自 modkit.py `KIT_VERSION`），并把过时的 six-module 描述改为准确措辞
+- 🏷️ 修正 v1.6.1 发布版本号未同步：`KIT_VERSION` 与 README badge 从 1.6.0 升到 1.6.1
+
 
 ### v1.6.0
 

@@ -14,16 +14,19 @@ if errorlevel 1 (
 
 rem ---- ANSI escape helper (pure-ASCII source) ----
 for /f %%a in ('echo prompt $E ^| cmd') do set "ESC=%%a"
+rem ---- kit version (single source: modkit.py KIT_VERSION) ----
+for /f "tokens=2 delims== " %%v in ('findstr /b "KIT_VERSION" modkit.py') do set "KITVER=%%~v"
 
 rem ---- banner (note: ^| escapes the pipe char for cmd) ----
 echo(
 echo  %ESC%[35m  +--------------------------------------------------------------+%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[96mZ C O D E   M O D   K I T%ESC%[0m                                      %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[37msix-module patcher for the ZCode desktop client%ESC%[0m              %ESC%[35m^|%ESC%[0m
+echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[96mZ C O D E   M O D   K I T%ESC%[0m                                   %ESC%[35m^|%ESC%[0m
+echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[37mmodular patcher for the ZCode desktop client%ESC%[0m                %ESC%[35m^|%ESC%[0m
+echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[96mVersion : %KITVER%%ESC%[0m                                             %ESC%[35m^|%ESC%[0m
 echo  %ESC%[35m  ^|%ESC%[0m                                                              %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[37mAuthor : Adam1290-0%ESC%[0m                                        %ESC%[35m^|%ESC%[0m
+echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[37mAuthor : Adam1290-0%ESC%[0m                                         %ESC%[35m^|%ESC%[0m
 echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[96mGitHub : https://github.com/Adam1290-0/zcode-mod-kit%ESC%[0m        %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[90mLicense: MIT - educational only, see DISCLAIMER.md%ESC%[0m           %ESC%[35m^|%ESC%[0m
+echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[90mLicense: MIT - educational only, see DISCLAIMER.md%ESC%[0m          %ESC%[35m^|%ESC%[0m
 echo  %ESC%[35m  +--------------------------------------------------------------+%ESC%[0m
 echo(
 
@@ -52,3 +55,4 @@ if errorlevel 1 (
 echo.
 pause
 endlocal
+

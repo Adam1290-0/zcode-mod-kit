@@ -31,7 +31,16 @@ def log(msg):
 
 def require_line_for(wrapper_path: Path) -> bytes:
     uri = str(wrapper_path.resolve().as_posix())
-    return b'try{require("' + uri.encode() + b'")}catch(e){}' + WRAPPER_MARKER
+    # Context guard (zcode-mod-kit#1): ZCode re-runs zcode.cjs as the
+    # "--prepare-storage" worker on every launch; short-circuit before the
+    # wrapper require so that short-lived migration worker never starts the
+    # local HTTP service, fs.watch, or the fetch patch. Both conditions must
+    # hold: primary thread AND not the storage-prep worker. The line keeps the
+    # 'try{require(' prefix so uninject.py's rfind(b'try{require(', 0, marker)
+    # line recovery keeps working on guarded and legacy lines alike.
+    return (b'try{require("worker_threads").isMainThread'
+            b'&&!process.argv.includes("--prepare-storage")'
+            b'&&require("' + uri.encode() + b'")}catch(e){}' + WRAPPER_MARKER)
 
 
 def deploy_wrapper(wrapper_js: Path) -> Path:

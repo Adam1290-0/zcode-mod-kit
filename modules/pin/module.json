@@ -1,8 +1,8 @@
 {
   "slug": "pin",
   "display_name": "上下文固定 Pin",
-  "version": "1.0.4",
-  "description": "把关键约束钉住，每轮自动注入模型上下文最顶部；会话隔离、子 agent 排除、过时钩子；适配 3.14.3（锚点不变），token 烘焙改裸替换（对齐 account-switcher v1.0.3 硬规则） | fix: add Access-Control-Allow-Private-Network (newer Electron private-network checks)",
+  "version": "1.0.5",
+  "description": "把关键约束钉住，每轮自动注入模型上下文最顶部；会话隔离、子 agent 排除、过时钩子；适配 3.15.3（锚点不变），token 烘焙改裸替换（对齐 account-switcher v1.0.3 硬规则） | fix: guard the zcode.cjs require line (isMainThread + !--prepare-storage) so the storage-prep worker no longer loads the wrapper (zcode-mod-kit#1)",
   "order": 20,
   "targets": [
     "zcode-cjs",

@@ -92,7 +92,16 @@ def deploy_runtime(wrapper_path: Path, cjs_path: Path | None) -> Path:
 def inject_zcode_cjs(cjs_path: Path, wrapper_path: Path) -> bool:
     """Inject the one-line require. Returns True if injected, False if skipped."""
     wrapper_uri = str(wrapper_path.resolve().as_posix())
-    require_line = b'try{require("' + wrapper_uri.encode() + b'")}catch(e){}/*zro*/'
+    # Context guard (issue #1): zcode.cjs is also spawned as a short-lived
+    # "storage prepare" worker (`app-server --stdio --prepare-storage`) that only
+    # migrates the DB. Loading wrapper.js there would needlessly start the config
+    # server (27891), arm fs.watch and patch fetch. The guard requires the main
+    # thread (excludes worker_threads) AND the absence of --prepare-storage, so
+    # that worker boots with the wrapper skipped. Purely additive before the URI;
+    # /*zro*/ stays at the tail and remains within the 500-byte header window.
+    guard = (b'try{require("worker_threads").isMainThread'
+             b'&&!process.argv.includes("--prepare-storage")&&require("')
+    require_line = guard + wrapper_uri.encode() + b'")}catch(e){}/*zro*/'
 
     data = read_raw(cjs_path)
     if require_line in data:

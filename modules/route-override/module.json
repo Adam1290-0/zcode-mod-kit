@@ -1,8 +1,8 @@
 {
   "slug": "route-override",
   "display_name": "请求头与网络路由",
-  "version": "1.0.7",
-  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: switching preset back to default sent no match field (undefined route dropped by JSON.stringify -> 400); removal now carries {match}",
+  "version": "1.0.8",
+  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: storage-prepare worker (app-server --stdio --prepare-storage) no longer loads wrapper (main-thread && !--prepare-storage guard on require line)",
   "order": 10,
   "targets": [
     "zcode-cjs",

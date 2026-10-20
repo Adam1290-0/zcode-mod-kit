@@ -2,8 +2,8 @@
 """zombie-cleanup: zcode-cjs uninjector for zcode-mod-kit.
 
 Restores the original shutdown handler by removing the injected trigger.
-Supports both minified symbol generations (eNi <= 3.14.x, z7i 3.15.x) and
-the pre-kit legacy unmarked patch.
+Supports all minified symbol generations (eNi <= 3.14.x, z7i 3.15.x,
+TYi 3.16.x) and the pre-kit legacy unmarked patch.
 """
 import argparse
 import sys
@@ -13,6 +13,7 @@ SLUG = "zombie-cleanup"
 MARKER = b"zcode-zombie-cleanup"
 ANCHOR_314 = b"f(),n(eNi(_))"
 ANCHOR_315 = b"f(),n(z7i(_))"
+ANCHOR_316 = b"f(),n(TYi(_))"
 
 CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
 
@@ -29,6 +30,7 @@ def _payload() -> bytes:
 POOLED = _payload()
 LEGACY_314 = b"f()," + POOLED + b",n(eNi(_))"
 LEGACY_315 = b"f()," + POOLED + b",n(z7i(_))"
+LEGACY_316 = b"f()," + POOLED + b",n(TYi(_))"
 
 
 def main() -> None:
@@ -47,15 +49,17 @@ def main() -> None:
     data = tpath.read_bytes()
 
     changed = False
-    for anchor in (ANCHOR_314, ANCHOR_315):
+    for anchor in (ANCHOR_314, ANCHOR_315, ANCHOR_316):
         # marked form: marker + payload + ',' + anchor
         marked_insert = b"/*zcode-zombie-cleanup*/" + POOLED + b","
         if marked_insert + anchor in data:
             data = data.replace(marked_insert + anchor, anchor, 1)
             changed = True
             break
-        # legacy unmarked form: f(), payload, n(...)
-        legacy = b"f()," + POOLED + b",n(" + (b"eNi(_))" if anchor == ANCHOR_314 else b"z7i(_))")
+        # legacy unmarked form: f(), payload, n(<inner>) — the inner name
+        # follows whichever anchor matched (eNi/z7i/TYi), so derive it from
+        # the anchor itself rather than hard-coding a two-way ternary.
+        legacy = b"f()," + POOLED + b",n(" + anchor[len(b"f(),n("):]
         if legacy in data:
             data = data.replace(legacy, anchor, 1)
             changed = True

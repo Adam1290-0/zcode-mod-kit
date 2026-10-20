@@ -18,9 +18,10 @@ from pathlib import Path
 SLUG = "zombie-cleanup"
 # ZCode renames minified symbols between releases; the shutdown call shape is
 # f(),n(<exitCodeForSignal>(_)) — the inner function name changed from eNi
-# (<= 3.14.x) to z7i (3.15.x). Support both; exactly one must match.
+# (<= 3.14.x) to z7i (3.15.x) to TYi (3.16.x). Support all three; exactly one must match.
 ANCHOR_314 = b"f(),n(eNi(_))"
 ANCHOR_315 = b"f(),n(z7i(_))"
+ANCHOR_316 = b"f(),n(TYi(_))"
 MARKER = b"zcode-zombie-cleanup"
 
 CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
@@ -42,11 +43,12 @@ def _payload() -> bytes:
 # failing on "anchor matched 0 times".
 LEGACY_INSERT_314 = b"f()," + _payload() + b",n(eNi(_))"
 LEGACY_INSERT_315 = b"f()," + _payload() + b",n(z7i(_))"
+LEGACY_INSERT_316 = b"f()," + _payload() + b",n(TYi(_))"
 
 
 def find_anchor(data: bytes) -> bytes:
     """Return the matching anchor bytes, or None when neither matches."""
-    for anchor in (ANCHOR_314, ANCHOR_315):
+    for anchor in (ANCHOR_314, ANCHOR_315, ANCHOR_316):
         if data.count(anchor) >= 1:
             return anchor
     return None
@@ -99,7 +101,7 @@ def main() -> None:
 
     # Pre-kit manual patches: payload present without the marker (either
     # minified-symbol generation). Functionally identical — accept and SKIP.
-    for legacy in (LEGACY_INSERT_314, LEGACY_INSERT_315):
+    for legacy in (LEGACY_INSERT_314, LEGACY_INSERT_315, LEGACY_INSERT_316):
         if legacy in data:
             log("[SKIP] legacy unmarked patch detected; functionally identical, "
                 "leaving as-is")
@@ -108,7 +110,8 @@ def main() -> None:
     anchor = find_anchor(data)
     if anchor is None or data.count(anchor) != 1:
         log(f"anchor probe: eNi-version={data.count(ANCHOR_314)} "
-            f"z7i-version={data.count(ANCHOR_315)}")
+            f"z7i-version={data.count(ANCHOR_315)} "
+            f"TYi-version={data.count(ANCHOR_316)}")
         fail("anchor matched 0 or >1 times (expected exactly 1); "
              "refusing to inject (version drift?)", 2)
 

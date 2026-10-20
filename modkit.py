@@ -50,7 +50,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.6.1"
+KIT_VERSION = "1.6.2"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -266,7 +266,9 @@ def find_zcode_root():
 # each module's own compatibility table; bumped when modules are re-validated)
 # 3.14.4 (2026-09-29): four injection targets unchanged; all 7 modules verified
 # with zero anchor drift across the 7 module windows.
-VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4", "3.15.3"}
+# 3.16.2 (2026-10-19): four targets present; all 6 modules inject/verify/node-check
+# pass; uninject byte-identical restore confirmed.
+VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4", "3.15.3", "3.16.2"}
 
 
 def read_asar_version(asar_path):
@@ -327,6 +329,7 @@ ASAR_RENDERER_MARKERS = ("zcode-skin-ui", "zcode-account-switcher",
                          "zcode-route-override-ui", "zcode-pin-ui")
 ASAR_HOST_MARKER = "zcode-snapshot-kill-switch"   # snapshot-kill -> out/host/index.js
 ASAR_MAIN_MARKER = "[zusage]"                     # usage-bar     -> out/main/index.js
+ASAR_CHUNK_MARKERS = ("zcode-editresend-ui",)     # edit-resend   -> out/renderer/assets/*.js chunk
 
 
 def asar_is_clean(asar_path):
@@ -379,6 +382,21 @@ def asar_is_clean(asar_path):
         main = read_entry("out", "main", "index.js")
         if main and ASAR_MAIN_MARKER in main:
             return False
+        # edit-resend injects its renderer markers into a content-hashed
+        # out/renderer/assets/*.js chunk (never index.html), so the index.html
+        # scan above cannot see them. Walk every assets chunk so a
+        # chunk-only patch still reads as NOT clean - the same kitbak
+        # data-loss class as the index/host/main markers. Fail-closed: any
+        # chunk carrying a marker means patched, regardless of chunk size.
+        assets = (files.get("out", {}).get("files", {})
+                  .get("renderer", {}).get("files", {})
+                  .get("assets", {}).get("files", {}))
+        for name, entry in assets.items():
+            if not str(name).endswith(".js"):
+                continue
+            chunk = read_entry("out", "renderer", "assets", name)
+            if chunk and any(m in chunk for m in ASAR_CHUNK_MARKERS):
+                return False
         return True
     except Exception:
         return False  # unreadable = treat as patched, never destroy the backup

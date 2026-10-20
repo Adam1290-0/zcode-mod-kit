@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -166,11 +166,18 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 |
+| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.2
+
+- ✅ 适配 ZCode **3.16.2**（asar 341.3MB）：edit-resend-model-fix → **v4.0.0**（官方把 LCt 拆成 bdi+zAt、retryTurn 双调收敛过 bdi，补丁点收敛到 bdi 一处；分发器 Fr→li、草稿 ref er→Er.current）；zombie-cleanup → **v1.0.3**（shutdown 内层函数名 z7i→TYi 第三锚点）；skin-manager → **v2.2.3**（官方删除 idle indicator 元素，颜色控制自动隐藏、配置键保留可复活）；account-switcher / route-override / pin / usage-stats-fallback 零锚点漂移
+- 🛡️ asar_is_clean 补扫 out/renderer/assets chunk（edit-resend 的 renderer marker 落在内容哈希 chunk 而非 index.html），修掉「仅 edit-resend 注入时误判 clean、刷新 kitbak 破坏基线」的数据丢失类隐患
+- 🧪 全套 **164 项测试全绿**（engine 20 + modules 92 + edge 52）
+
 
 ### v1.6.1
 

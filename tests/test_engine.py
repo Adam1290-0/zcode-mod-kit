@@ -102,6 +102,23 @@ def main():
         check("asar_is_clean: usage-bar main marker -> not clean",
               M.asar_is_clean(p) is False)
 
+        # edit-resend lives in a content-hashed renderer/assets chunk
+        big = b"x" * 100_000 + b"/*[zcode-editresend-ui]*/"
+        p = write_asar(tmp, "chunk.asar", {
+            "package.json": PKG,
+            "out/renderer/index.html": CLEAN_HTML,
+            "out/renderer/assets/index-CSpM3qgc.js": big})
+        check("asar_is_clean: edit-resend chunk marker -> not clean",
+              M.asar_is_clean(p) is False)
+
+        # fail-closed: even a sub-100KB js carrying the marker counts as patched
+        p = write_asar(tmp, "small.asar", {
+            "package.json": PKG,
+            "out/renderer/index.html": CLEAN_HTML,
+            "out/renderer/assets/tiny.js": b"/*[zcode-editresend-ui]*/"})
+        check("asar_is_clean: small js with chunk marker -> not clean",
+              M.asar_is_clean(p) is False)
+
         # unreadable / garbage -> False (fail-closed, never destroy the backup)
         for i, bad in enumerate((b"", b"\x00" * 16, b"garbage-not-an-asar")):
             p = tmp / f"bad{i}.asar"

@@ -1630,7 +1630,13 @@
     colL.appendChild(colorField("未读", c.statusUnread, "#38bdf8", function (v) { c.statusUnread = v; refreshAll(c); }));
     colorGrid.appendChild(colL);
     var colR = el("div", "flex:1;min-width:130px");
-    colR.appendChild(colorField("空闲", c.statusIdle, "#9ca3af", function (v) { c.statusIdle = v; refreshAll(c); }));
+    // ZCode 3.16.2 removed the idle indicator element entirely (task list states
+    // are now error/unread/loading only). Hide the control when no such element
+    // exists on the page so the panel does not offer a dead option; the config
+    // key is kept so it revives automatically if the element ever returns.
+    if (document.querySelector("[data-idle-indicator]")) {
+      colR.appendChild(colorField("空闲", c.statusIdle, "#9ca3af", function (v) { c.statusIdle = v; refreshAll(c); }));
+    }
     colR.appendChild(colorField("完成", c.statusSuccess, "#46bf72", function (v) { c.statusSuccess = v; refreshAll(c); }));
     colorGrid.appendChild(colR);
     panel.appendChild(colorGrid);

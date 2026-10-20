@@ -2,7 +2,8 @@
 """usage-stats-fallback: zcode-cjs injector for zcode-mod-kit.
 
 Backfills the official usage-stats page (settings -> usage) by adding a
-message-table fallback inside Xkr(queryAppUsage) in zcode.cjs.
+message-table fallback inside the queryAppUsage aggregation function in
+zcode.cjs (named eLr on 3.16.2; Xkr on <=3.14.x, h2r on 3.15.x).
 
 Root cause: ZCode switched token-usage storage from message.data.tokens
 (JSON, pre 2026-09-01) to the model_usage table (post 2026-09-01). The
@@ -10,7 +11,7 @@ official stats page only queries model_usage, so all pre-September data
 appears to be "zero". The CLI zusage.py already has a similar fallback
 (via _message_range_usage); this module brings it to the GUI.
 
-Two insertions in async function Xkr(e,t):
+Two insertions in the aggregation function (eLr on 3.16.2):
   1. After the daily-aggregation loop (E Map) and before the model-by-day
      query (let R=e.prepare): if the window starts before model_usage's
      first known record, query message.data.tokens per-day totals and
@@ -19,8 +20,10 @@ Two insertions in async function Xkr(e,t):
      augmented E/dayModels so the summary and model-ranking reflect
      both old and new data.  Marker: /*zusage-fb-merge*/
 
-Both anchors are byte-unique inside the Xkr function body (verified on
-3.14.4). The patch is idempotent: markers already present -> SKIP.
+Both anchors are byte-unique inside the function body (verified across
+3.14.4 - 3.16.2; the function and some var names are renamed each release
+but the anchors, the day-map variable C, and the .all(i,a,n,o) call shape
+are stable). The patch is idempotent: markers already present -> SKIP.
 All operations are raw-byte to preserve line endings.
 """
 import argparse

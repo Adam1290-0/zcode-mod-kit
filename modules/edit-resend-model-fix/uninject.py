@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""edit-resend-model-fix v3: cjs + renderer uninjector for zcode-mod-kit.
+"""edit-resend-model-fix v4: cjs + renderer uninjector for zcode-mod-kit.
 
-Reverses v3 back to the OFFICIAL 3.15.3 state, byte-exactly, on both targets.
+Reverses v4 back to the OFFICIAL 3.16.2 state, byte-exactly, on both targets.
 """
 import argparse
 import subprocess
@@ -11,33 +11,33 @@ from pathlib import Path
 
 SLUG = "edit-resend-model-fix"
 
-LC_STALE = (b"modelSelection:o.intent.modelSelection,"
-            b"mode:o.intent.mode,planEnabled:o.intent.planEnabled,")
-LC_PATCHED = (b"/*[zcode-editresend-model-fix:v3]*/"
-              b"modelSelection:n.payload?.modelSelection??o.intent.modelSelection,"
-              b"mode:n.payload?.mode??o.intent.mode,"
-              b"planEnabled:n.payload?.planEnabled!==void 0?"
-              b"n.payload.planEnabled:o.intent.planEnabled,")
-RT_OLD = (b"retryTurn:m.object({target:BA}),setAssistantFeedback")
-RT_NEW = (b"retryTurn:m.object({target:BA,modelSelection:Nl.optional(),"
-          b"mode:Lme.optional(),planEnabled:m.boolean().optional()}),"
+BDI_STALE = (b"modelSelection:n.intent.modelSelection,"
+             b"mode:n.intent.mode,planEnabled:n.intent.planEnabled,")
+BDI_PATCHED = (b"/*[zcode-editresend-model-fix:v4]*/"
+               b"modelSelection:t.payload?.modelSelection??n.intent.modelSelection,"
+               b"mode:t.payload?.mode??n.intent.mode,"
+               b"planEnabled:t.payload?.planEnabled!==void 0?"
+               b"t.payload.planEnabled:n.intent.planEnabled,")
+RT_OLD = (b"retryTurn:m.object({target:KA}),setAssistantFeedback")
+RT_NEW = (b"retryTurn:m.object({target:KA,modelSelection:Ll.optional(),"
+          b"mode:Che.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
-ER_SPREAD = (b"...(er.current.modelSelection?{modelSelection:er.current."
-             b"modelSelection,mode:er.current.mode,"
-             b"planEnabled:er.current.planEnabled}:{})")
-NEE_NEW = (b"let l=await Fr(`editUserQuery`,{target:e,newText:n,"
+ER_SPREAD = (b"...(Er.current.modelSelection?{modelSelection:Er.current."
+             b"modelSelection,mode:Er.current.mode,"
+             b"planEnabled:Er.current.planEnabled}:{})")
+NEE_NEW = (b"let l=await li(`editUserQuery`,{target:e,newText:n,"
            b"workspaceMode:i,conversationQuotes:a," + ER_SPREAD +
            b",...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
            b"c.logEpoch,void 0,s.acceleratedCard);"
            b"/*[zcode-editresend-ui]*/")
-NEE_OLD = (b"let l=await Fr(`editUserQuery`,{target:e,newText:n,"
+NEE_OLD = (b"let l=await li(`editUserQuery`,{target:e,newText:n,"
            b"workspaceMode:i,conversationQuotes:a,"
            b"...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
            b"c.logEpoch,void 0,s.acceleratedCard);")
-BI_NEW = (b"return Fr(`retryTurn`,{target:e," + ER_SPREAD +
+BI_NEW = (b"return li(`retryTurn`,{target:e," + ER_SPREAD +
           b"}/*[zcode-editresend-ui]*/,t,n.revision,n.logEpoch)")
-BI_OLD = b"return Fr(`retryTurn`,{target:e},t,n.revision,n.logEpoch)"
+BI_OLD = b"return li(`retryTurn`,{target:e},t,n.revision,n.logEpoch)"
 
 
 def log(msg: str) -> None:
@@ -68,13 +68,13 @@ def uninject_cjs(tpath: Path) -> None:
     data = tpath.read_bytes()
     touched = False
 
-    if LC_PATCHED in data:
-        if data.count(LC_PATCHED) != 1:
-            fail("cjs LCt v3 patch matched != 1; abort", 2)
-        data = data.replace(LC_PATCHED, LC_STALE, 1)
+    if BDI_PATCHED in data:
+        if data.count(BDI_PATCHED) != 1:
+            fail("cjs bdi v4 patch matched != 1; abort", 2)
+        data = data.replace(BDI_PATCHED, BDI_STALE, 1)
         touched = True
-        log("cjs L1: LCt restored to official frozen replay")
-    elif LC_STALE in data:
+        log("cjs L1: bdi restored to official frozen replay")
+    elif BDI_STALE in data:
         log("cjs L1: no patch present")
 
     if RT_NEW in data:
@@ -122,10 +122,10 @@ def uninject_renderer(root: Path) -> None:
         log("renderer nee: reverted")
     if BI_NEW in data:
         if data.count(BI_NEW) != 1:
-            fail("renderer bi patch matched != 1; abort", 2)
+            fail("renderer retry patch matched != 1; abort", 2)
         data = data.replace(BI_NEW, BI_OLD, 1)
         touched = True
-        log("renderer bi: reverted")
+        log("renderer retry: reverted")
 
     if b"zcode-editresend-ui" in data or ER_SPREAD in data:
         fail("renderer: stray editresend markers remain; abort", 2)
@@ -137,7 +137,7 @@ def uninject_renderer(root: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=f"{SLUG}: un-inject v3 fix")
+    ap = argparse.ArgumentParser(description=f"{SLUG}: un-inject v4 fix")
     ap.add_argument("--dir", default=None, help="unpacked asar root")
     ap.add_argument("--zcode-cjs", default=None,
                     help="path to resources/glm/zcode.cjs")

@@ -176,7 +176,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 - ✅ 适配 ZCode **3.16.2**（asar 341.3MB）：edit-resend-model-fix → **v4.0.0**（官方把 LCt 拆成 bdi+zAt、retryTurn 双调收敛过 bdi，补丁点收敛到 bdi 一处；分发器 Fr→li、草稿 ref er→Er.current）；zombie-cleanup → **v1.0.3**（shutdown 内层函数名 z7i→TYi 第三锚点）；skin-manager → **v2.2.3**（官方删除 idle indicator 元素，颜色控制自动隐藏、配置键保留可复活）；account-switcher / route-override / pin / usage-stats-fallback 零锚点漂移
 - 🛡️ asar_is_clean 补扫 out/renderer/assets chunk（edit-resend 的 renderer marker 落在内容哈希 chunk 而非 index.html），修掉「仅 edit-resend 注入时误判 clean、刷新 kitbak 破坏基线」的数据丢失类隐患
-- 🧪 全套 **164 项测试全绿**（engine 20 + modules 92 + edge 52）
+- 🧪 全套 **173 项测试全绿**（engine 20 + modules 101 + edge 52），新增 zombie 3.16.2 锚点/回滚 9 项与 asar chunk 扫描 2 项
 
 
 ### v1.6.1

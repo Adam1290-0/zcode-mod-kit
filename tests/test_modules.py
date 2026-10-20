@@ -515,6 +515,57 @@ def main():
               rc == 0 and "legacy" in out.lower(), out[-300:])
         check("zombie-legacy315: file untouched by skip", cjs4.read_bytes() == LEGACY_315)
 
+        # 3.16.2 variant: shutdown handler uses n(TYi(_)) (third generation).
+        ZOMBIE_316 = (
+            b'"use strict";'
+            b'function dui(e){let t=e.process??process,n=e.exitProcess??(_=>process.exit(_)),'
+            b'o=Math.max(0,Math.trunc(e.cleanupTimeoutMs??SYi)),i=xYi(t.platform),a=[],c=!1,u=!1,'
+            b'f=r(()=>{if(!c){c=!0;for(let[_,b]of a)t.off(_,b)}},"unregister"),'
+            b'h=r(async _=>{u||(u=!0,e.abort?.(_),await IF(e.cleanup,o),await PQe(),'
+            b'f(),n(TYi(_)))},"shutdown");return h}\n'
+        )
+        work5 = tmp / "zombie-316" / "unpacked"
+        cjs5 = make_tree(work5, cjs=ZOMBIE_316)
+        zargs5 = ["--zcode-cjs", str(cjs5)]
+        env5 = dict(os.environ)
+        env5["USERPROFILE"] = str(tmp / "zombie-316" / "home")
+        rc, out = run(zdir / "inject.py", zargs5, env5)
+        check("zombie-316: inject exit 0", rc == 0, out[-300:])
+        check("zombie-316: marker present", b"zcode-zombie-cleanup" in cjs5.read_bytes())
+        rc, out = run(zdir / "verify.py", zargs5, env5)
+        check("zombie-316: verify exit 0", rc == 0, out[-300:])
+        rc, out = run(zdir / "inject.py", zargs5, env5)
+        check("zombie-316: re-inject idempotent", rc == 0 and "[SKIP]" in out, out[-300:])
+        rc, out = run(zdir / "uninject.py", zargs5, env5)
+        check("zombie-316: uninject byte-identical", cjs5.read_bytes() == ZOMBIE_316)
+
+        # 3.16.2 legacy unmarked patch shape (TYi variant).
+        LEGACY_316 = (
+            b'"use strict";'
+            b'function dui(e){let t=e.process??process,n=e.exitProcess??(_=>process.exit(_)),'
+            b'o=Math.max(0,Math.trunc(e.cleanupTimeoutMs??SYi)),i=xYi(t.platform),a=[],c=!1,u=!1,'
+            b'f=r(()=>{if(!c){c=!0;for(let[_,b]of a)t.off(_,b)}},"unregister"),'
+            b'h=r(async _=>{u||(u=!0,e.abort?.(_),await IF(e.cleanup,o),await PQe(),f(),'
+            b'function(){try{require("child_process").spawn("powershell",'
+            b'["-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden",'
+            b'"-File","C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1",'
+            b'"-Tag","zcode-exit"],{detached:true,stdio:"ignore"}).unref()}'
+            b'catch(e){}}(),n(TYi(_)))},"shutdown");return h}\n'
+        )
+        work6 = tmp / "zombie-legacy316" / "unpacked"
+        cjs6 = make_tree(work6, cjs=LEGACY_316)
+        zargs6 = ["--zcode-cjs", str(cjs6)]
+        env6 = dict(os.environ)
+        env6["USERPROFILE"] = str(tmp / "zombie-legacy316" / "home")
+        rc, out = run(zdir / "inject.py", zargs6, env6)
+        check("zombie-legacy316: inject SKIPs legacy patch",
+              rc == 0 and "legacy" in out.lower(), out[-300:])
+        check("zombie-legacy316: file untouched by skip", cjs6.read_bytes() == LEGACY_316)
+        rc, out = run(zdir / "uninject.py", zargs6, env6)
+        check("zombie-legacy316: uninject exit 0", rc == 0, out[-300:])
+        check("zombie-legacy316: anchor restored",
+              cjs6.read_bytes().count(b"f(),n(TYi(_))") == 1)
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

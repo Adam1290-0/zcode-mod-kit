@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.4-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.5-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -171,6 +171,14 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.5
+
+- 🐛 **修复「运行时 wrapper 永不更新」**（route-override v1.0.10 / pin v1.0.7）：安装器的外层跳过门只问 `verify.py`，而两个 verifier 只看 asar 与 zcode.cjs 的注入标记——`~/.zcode/plugins/<slug>/` 下的 wrapper 由 `inject.py` 部署，一旦跳过 `inject.py`，旧 wrapper 就永远留在机器上。
+  - 这是 2026-09-28「仓库修了、机器没变」同类问题的第二个位置；这次它让 v1.6.4 的端口泄漏修复没能落到本机（wrapper 还停在 09-24）
+  - 修法：两个 verifier 增加运行时 wrapper 与仓库资产的字节比对（pin 另含 pin-core.js），不一致即判 FAIL，安装器随之重新走 `inject.py` 部署
+- 🧪 全套 **190 项测试全绿**（engine 20 + modules 118 + edge 52），新增 12 项「陈旧 wrapper 必须被拒 + 重装必须复原」回归
+
 
 ### v1.6.4
 

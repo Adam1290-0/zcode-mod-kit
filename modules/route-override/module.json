@@ -1,8 +1,8 @@
 {
   "slug": "route-override",
   "display_name": "请求头与网络路由",
-  "version": "1.0.9",
-  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: storage-prepare worker (app-server --stdio --prepare-storage) no longer loads wrapper (main-thread && !--prepare-storage guard on require line) | 3.16.3: port-retry listener leak fixed (single listening handler)",
+  "version": "1.0.10",
+  "description": "Per-provider header preset (Claude Code / Codex / OpenSquilla / custom) + optional VPN tunnel | fix: storage-prepare worker (app-server --stdio --prepare-storage) no longer loads wrapper (main-thread && !--prepare-storage guard on require line) | 3.16.3: port-retry listener leak fixed (single listening handler) | verify.py now rejects a stale runtime wrapper (re-install redeploys it)",
   "order": 10,
   "targets": [
     "zcode-cjs",

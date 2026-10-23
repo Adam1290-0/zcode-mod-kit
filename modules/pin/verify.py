@@ -12,9 +12,10 @@ Usage:
 
 Standard library only. All output lines are prefixed with [pin].
 """
-import sys, argparse
+import sys, argparse, os
 from pathlib import Path
 
+DATA_DIR = Path(os.path.expanduser("~/.zcode/plugins/pin"))
 WRAPPER_MARKER = b"/*zpin*/"
 UI_MARKER = '<script id="zcode-pin-ui">'
 TOKEN_PLACEHOLDER = "'__ZPIN_TOKEN__'"
@@ -44,6 +45,24 @@ def main() -> int:
             missing.append("ui-block")
         if TOKEN_PLACEHOLDER in html:
             missing.append("token-unreplaced")
+
+    # Runtime wrapper freshness. The kit's SKIP gate trusts this verifier, and
+    # the wrapper is only deployed by inject.py - so without this check a
+    # re-install keeps an outdated ~/.zcode/plugins/pin wrapper indefinitely
+    # (the 2026-09-28 "repo fixed, machine never updated" failure class).
+    asset = Path(__file__).resolve().parent / "assets" / "pin-wrapper.js"
+    deployed = DATA_DIR / "pin-wrapper.js"
+    if not deployed.exists():
+        missing.append("runtime-wrapper-missing")
+    elif deployed.read_bytes() != asset.read_bytes():
+        missing.append("runtime-wrapper-stale")
+    core_asset = Path(__file__).resolve().parent / "assets" / "pin-core.js"
+    core_deployed = DATA_DIR / "pin-core.js"
+    if core_asset.exists():
+        if not core_deployed.exists():
+            missing.append("runtime-core-missing")
+        elif core_deployed.read_bytes() != core_asset.read_bytes():
+            missing.append("runtime-core-stale")
 
     if missing:
         print("[pin] verify FAIL: " + ", ".join(missing))

@@ -201,6 +201,51 @@ def main():
             if (tmp / "acct-fresh").exists():
                 shutil.rmtree(tmp / "acct-fresh", ignore_errors=True)
 
+        # ---- 1c2. route/pin runtime-wrapper freshness ----------------------
+        # The kit's outer SKIP gate trusts verify.py. When verify only looked at
+        # asar + zcode.cjs, a re-install skipped inject.py entirely and therefore
+        # never redeployed ~/.zcode/plugins/<slug>/ - an outdated runtime wrapper
+        # survived silently for a month (it hid the port-retry listener leak).
+        # Lock both halves: verify must REJECT a stale deployment, and a
+        # re-inject must restore it byte-for-byte.
+        for slug, asset_name, deployed_rel, home_key in (
+            ("route-override", "wrapper.js", ("route-override", "wrapper.js"),
+             "route-fresh"),
+            ("pin", "pin-wrapper.js", ("pin", "pin-wrapper.js"), "pin-fresh"),
+        ):
+            tag = home_key
+            work = tmp / tag / "unpacked"
+            cjs_f = make_tree(work)
+            env_f = dict(os.environ)
+            env_f["USERPROFILE"] = str(tmp / tag / "home")
+            env_f["HOME"] = str(tmp / tag / "home")
+            margs = ["--dir", str(work), "--zcode-cjs", str(cjs_f)]
+            try:
+                rc, out = run(module(slug) / "inject.py", margs, env_f)
+                check(f"{tag}: inject exit 0", rc == 0, out[-300:])
+
+                deployed = tmp / tag / "home" / ".zcode" / "plugins" / deployed_rel[0] / deployed_rel[1]
+                asset = module(slug) / "assets" / asset_name
+                check(f"{tag}: deployed == asset immediately",
+                      deployed.exists() and deployed.read_bytes() == asset.read_bytes(),
+                      str(deployed))
+
+                deployed.write_bytes(b"// stale pre-fix runtime wrapper\n" + asset.read_bytes())
+                rcv, outv = run(module(slug) / "verify.py", margs, env_f)
+                check(f"{tag}: verify REJECTS stale runtime wrapper", rcv != 0,
+                      f"rc={rcv} {outv[-160:]}")
+
+                rc, out = run(module(slug) / "inject.py", margs, env_f)
+                check(f"{tag}: re-inject after wrapper drift exit 0", rc == 0, out[-300:])
+                check(f"{tag}: stale wrapper redeployed",
+                      deployed.read_bytes() == asset.read_bytes(), out[-200:])
+
+                rc2, _ = run(module(slug) / "verify.py", margs, env_f)
+                check(f"{tag}: verify exit 0 after redeploy", rc2 == 0)
+            finally:
+                if (tmp / tag).exists():
+                    shutil.rmtree(tmp / tag, ignore_errors=True)
+
         # ---- 1d. account renderer-block freshness (same incident, UI half) --
         work = tmp / "acct-ui-fresh" / "unpacked"
         cjs = make_tree(work, main=MOCK_MAIN_LF)

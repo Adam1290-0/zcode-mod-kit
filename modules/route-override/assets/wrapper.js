@@ -381,6 +381,19 @@ function startConfigServer() {
     res.writeHead(404, cors); res.end();
   });
   let cfgRetryTimer = null;
+  // One permanent 'listening' handler, never a per-attempt callback: passing a
+  // fresh callback to every retry listen() leaves the previous callback bound
+  // to the same 'listening' event, so a port that stays busy for minutes
+  // accumulates one listener per tick and finally fires all of them at once
+  // (observed: 164 duplicate "recovered" lines in a single millisecond, plus
+  // MaxListenersExceededWarning). Retry with no callback and let this single
+  // handler decide what to log.
+  server.on("listening", () => {
+    const recovered = cfgRetryTimer !== null;
+    if (recovered) { clearInterval(cfgRetryTimer); cfgRetryTimer = null; }
+    log("config server on 127.0.0.1:" + CONFIG_SERVER_PORT
+        + (recovered ? " (recovered)" : ""));
+  });
   server.on("error", (e) => {
     if (e.code === "EADDRINUSE") {
       // Port owned by another process: retry so this one can take over
@@ -389,11 +402,7 @@ function startConfigServer() {
         log("config server: port busy, retrying every 3s");
         cfgRetryTimer = setInterval(() => {
           try {
-            server.listen(CONFIG_SERVER_PORT, "127.0.0.1", () => {
-              clearInterval(cfgRetryTimer);
-              cfgRetryTimer = null;
-              log("config server on 127.0.0.1:" + CONFIG_SERVER_PORT + " (recovered)");
-            });
+            server.listen(CONFIG_SERVER_PORT, "127.0.0.1");
           } catch (err) { /* retry next tick */ }
         }, 3000);
       }
@@ -401,8 +410,7 @@ function startConfigServer() {
       log("config server error: " + e.message);
     }
   });
-  server.listen(CONFIG_SERVER_PORT, "127.0.0.1", () =>
-    log("config server on 127.0.0.1:" + CONFIG_SERVER_PORT));
+  server.listen(CONFIG_SERVER_PORT, "127.0.0.1");
 }
 
 loadConfig();

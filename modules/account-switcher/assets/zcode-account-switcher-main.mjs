@@ -506,11 +506,9 @@ function startServer() {
         log('port busy, retrying every 3s');
         startServer._retry = setInterval(() => {
           try {
-            server.listen(PORT, '127.0.0.1', () => {
-              clearInterval(startServer._retry);
-              startServer._retry = null;
-              log('listening on 127.0.0.1:' + PORT + ' (recovered)');
-            });
+            // No per-attempt callback: it would stay bound to 'listening'
+            // and accumulate one listener per tick while the port is held.
+            server.listen(PORT, '127.0.0.1');
           } catch { /* retry next tick */ }
         }, 3000);
       }
@@ -518,7 +516,12 @@ function startServer() {
       log('server error', e);
     }
   });
-  server.listen(PORT, '127.0.0.1', () => log('listening on 127.0.0.1:' + PORT));
+  server.on('listening', () => {
+    const recovered = Boolean(startServer._retry);
+    if (recovered) { clearInterval(startServer._retry); startServer._retry = null; }
+    log('listening on 127.0.0.1:' + PORT + (recovered ? ' (recovered)' : ''));
+  });
+  server.listen(PORT, '127.0.0.1');
   return server;
 }
 

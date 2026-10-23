@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.3-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.4-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -171,6 +171,15 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.4
+
+- 🐛 **修复端口重试的监听器泄漏**（route-override v1.0.9 / pin v1.0.6 / account-switcher v1.0.9）：三个模块的本地服务在 `EADDRINUSE` 时每 3 秒重试一次，但每次都给 `server.listen()` 传一个新回调——旧回调不会被解绑，一直挂在同一个 `listening` 事件上。端口被占越久挂得越多，端口终于释放时全部一起触发。
+  - 实测症状：日志里同 1 毫秒刷出 **164 条重复的 `(recovered)`**（route 与 pin 各 164 条），并触发 `MaxListenersExceededWarning`
+  - 修法：`listening` 改成一个常驻处理器，重试调用不再传回调；`recovered` 只在真的从重试状态恢复时记录一次
+  - A/B 对照实测：旧实现 5 次重试→7 个监听器、40 次→42 个（线性泄漏）；新实现任意次数恒为 2 个
+- 🧪 全套 **178 项测试全绿**（engine 20 + modules 106 + edge 52）；三份 JS 均过 `node --check`
+
 
 ### v1.6.3
 

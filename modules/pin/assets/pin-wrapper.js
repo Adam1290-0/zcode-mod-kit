@@ -295,6 +295,14 @@ function startServer() {
     });
   });
   var retryTimer = null;
+  // Single permanent 'listening' handler (see route wrapper): a per-attempt
+  // callback accumulates one 'listening' listener per retry tick, so a port
+  // held for minutes ends with dozens of them firing at once.
+  server.on("listening", function () {
+    var recovered = retryTimer !== null;
+    if (recovered) { clearInterval(retryTimer); retryTimer = null; }
+    log("pin server on 127.0.0.1:" + SERVER_PORT + (recovered ? " (recovered)" : ""));
+  });
   server.on("error", function (e) {
     if (e.code === "EADDRINUSE") {
       // Another process owns the port. If it later dies (crash, update), the
@@ -304,11 +312,7 @@ function startServer() {
         log("pin server: port busy, retrying every 3s");
         retryTimer = setInterval(function () {
           try {
-            server.listen(SERVER_PORT, "127.0.0.1", function () {
-              clearInterval(retryTimer);
-              retryTimer = null;
-              log("pin server on 127.0.0.1:" + SERVER_PORT + " (recovered)");
-            });
+            server.listen(SERVER_PORT, "127.0.0.1");
           } catch (err) { /* try again next tick */ }
         }, 3000);
       }
@@ -316,7 +320,7 @@ function startServer() {
       log("pin server error: " + e.message);
     }
   });
-  server.listen(SERVER_PORT, "127.0.0.1", function () { log("pin server on 127.0.0.1:" + SERVER_PORT); });
+  server.listen(SERVER_PORT, "127.0.0.1");
   // Production (token from file) may unref: ZCode's main process has plenty of
   // other active handles. Tests pass the token via ZPIN_TOKEN env and need the
   // server handle active — otherwise the bare child process exits immediately.

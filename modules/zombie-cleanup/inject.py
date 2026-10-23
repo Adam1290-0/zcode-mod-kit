@@ -17,11 +17,14 @@ from pathlib import Path
 
 SLUG = "zombie-cleanup"
 # ZCode renames minified symbols between releases; the shutdown call shape is
-# f(),n(<exitCodeForSignal>(_)) — the inner function name changed from eNi
-# (<= 3.14.x) to z7i (3.15.x) to TYi (3.16.x). Support all three; exactly one must match.
+# f(),n(<exitCodeForSignal>(_)) — the inner function name has changed on every
+# release: eNi (<= 3.14.x) -> z7i (3.15.x) -> TYi (3.16.2) -> RYi (3.16.3).
+# All known generations are supported; exactly one must match.
 ANCHOR_314 = b"f(),n(eNi(_))"
 ANCHOR_315 = b"f(),n(z7i(_))"
 ANCHOR_316 = b"f(),n(TYi(_))"
+ANCHOR_3163 = b"f(),n(RYi(_))"
+ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163)
 MARKER = b"zcode-zombie-cleanup"
 
 CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
@@ -44,11 +47,12 @@ def _payload() -> bytes:
 LEGACY_INSERT_314 = b"f()," + _payload() + b",n(eNi(_))"
 LEGACY_INSERT_315 = b"f()," + _payload() + b",n(z7i(_))"
 LEGACY_INSERT_316 = b"f()," + _payload() + b",n(TYi(_))"
+LEGACY_INSERT_3163 = b"f()," + _payload() + b",n(RYi(_))"
 
 
 def find_anchor(data: bytes) -> bytes:
     """Return the matching anchor bytes, or None when neither matches."""
-    for anchor in (ANCHOR_314, ANCHOR_315, ANCHOR_316):
+    for anchor in ANCHORS:
         if data.count(anchor) >= 1:
             return anchor
     return None
@@ -101,7 +105,8 @@ def main() -> None:
 
     # Pre-kit manual patches: payload present without the marker (either
     # minified-symbol generation). Functionally identical — accept and SKIP.
-    for legacy in (LEGACY_INSERT_314, LEGACY_INSERT_315, LEGACY_INSERT_316):
+    for legacy in (LEGACY_INSERT_314, LEGACY_INSERT_315, LEGACY_INSERT_316,
+                   LEGACY_INSERT_3163):
         if legacy in data:
             log("[SKIP] legacy unmarked patch detected; functionally identical, "
                 "leaving as-is")
@@ -109,9 +114,9 @@ def main() -> None:
 
     anchor = find_anchor(data)
     if anchor is None or data.count(anchor) != 1:
-        log(f"anchor probe: eNi-version={data.count(ANCHOR_314)} "
-            f"z7i-version={data.count(ANCHOR_315)} "
-            f"TYi-version={data.count(ANCHOR_316)}")
+        log("anchor probe: " + " ".join(
+            f"{anchor[6:9].decode()}-version={data.count(anchor)}"
+            for anchor in ANCHORS))
         fail("anchor matched 0 or >1 times (expected exactly 1); "
              "refusing to inject (version drift?)", 2)
 

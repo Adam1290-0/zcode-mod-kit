@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.3-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -166,11 +166,18 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 |
+| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.3
+
+- ✅ 适配 ZCode **3.16.3**（asar 341.4MB）：edit-resend-model-fix → **v5.0.0**（分发器 li→fi、草稿 ref Er→Tr.current、retryTurn schema 别名 Che→Ehe）；zombie-cleanup → **v1.0.4**（shutdown 内层函数第五代改名 TYi→RYi，锚点表扩为 4 代）；skin-manager / account-switcher / route-override / pin / usage-stats-fallback 零锚点漂移
+- 🧪 真实 3.16.3 解包树端到端验证：9 模块全注入 → node --check（zcode.cjs / main / renderer chunk）全过 → 全部卸载 → **zcode.cjs 字节级还原 pristine**，asar 侧标记全清零
+- 🧪 全套 **178 项测试全绿**（engine 20 + modules 106 + edge 52），新增 zombie RYi 锚点 5 项
+
 
 ### v1.6.2
 

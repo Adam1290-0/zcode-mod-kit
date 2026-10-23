@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
-"""edit-resend-model-fix v4: cjs + renderer injector for zcode-mod-kit.
+"""edit-resend-model-fix v5: cjs + renderer injector for zcode-mod-kit.
 
 GOAL: "edit user query" / "retry turn" must run with the model the user has
-CURRENTLY selected in the composer (ZCode 3.16.2).
+CURRENTLY selected in the composer (ZCode 3.16.3).
 
-Why still needed in 3.16.2: the official editUserQuery schema already accepts
+Why still needed in 3.16.3: the official editUserQuery schema already accepts
 payload.modelSelection (highspeed path), but the canonical-intent builder
 bdi() still replays the FROZEN modelSelection/mode/planEnabled from the
 original intent, and retryTurn still has no selection fields at all; the
 renderer edit/retry callbacks still do not attach the current composer
 selection.
 
-Structural note (3.16.2): the v3 target LCt was split into
+Structural note (3.16.3): the v3 target LCt was split into
 bdi (buildCanonicalIntent) + zAt (startCanonicalIntent); BOTH editUserQuery
 and retryTurn (bfc executor: Ijn + zAt) funnel through bdi, so patching bdi's
 frozen replay covers every re-run path in one anchor.
 
-Patches (all anchors verified unique in 3.16.2):
+Patches (all anchors verified unique in 3.16.3):
 
 cjs L1   bdi frozen replay -> payload-priority
 cjs L2   retryTurn schema widened with optional modelSelection/mode/planEnabled
-renderer L3  nee/retry callbacks spread the live draft ref Er.current
+renderer L3  nee/retry callbacks spread the live draft ref Tr.current
          (draftConfigRef useRef, updated synchronously by the draft updater -
          the v2 lesson: never a render snapshot or memoized callback closure).
 
@@ -34,36 +34,36 @@ import tempfile
 from pathlib import Path
 
 SLUG = "edit-resend-model-fix"
-V4_TAG = b"/*[zcode-editresend-model-fix:v4]*/"
+V5_TAG = b"/*[zcode-editresend-model-fix:v5]*/"
 
-# ----------------------------- cjs anchors (3.16.2) ------------------------
+# ----------------------------- cjs anchors (3.16.3) ------------------------
 BDI_STALE = (b"modelSelection:n.intent.modelSelection,"
              b"mode:n.intent.mode,planEnabled:n.intent.planEnabled,")
-BDI_PATCHED = (V4_TAG
+BDI_PATCHED = (V5_TAG
                + b"modelSelection:t.payload?.modelSelection??n.intent.modelSelection,"
                b"mode:t.payload?.mode??n.intent.mode,"
                b"planEnabled:t.payload?.planEnabled!==void 0?"
                b"t.payload.planEnabled:n.intent.planEnabled,")
 RT_OLD = (b"retryTurn:m.object({target:KA}),setAssistantFeedback")
 RT_NEW = (b"retryTurn:m.object({target:KA,modelSelection:Ll.optional(),"
-          b"mode:Che.optional(),planEnabled:m.boolean().optional()}),"
+          b"mode:Ehe.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
-# --------------------------- renderer anchors (3.16.2) --------------------
-NEE_OLD = (b"let l=await li(`editUserQuery`,{target:e,newText:n,"
+# --------------------------- renderer anchors (3.16.3) --------------------
+NEE_OLD = (b"let l=await fi(`editUserQuery`,{target:e,newText:n,"
            b"workspaceMode:i,conversationQuotes:a,"
            b"...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
            b"c.logEpoch,void 0,s.acceleratedCard);")
-ER_SPREAD = (b"...(Er.current.modelSelection?{modelSelection:Er.current."
-             b"modelSelection,mode:Er.current.mode,"
-             b"planEnabled:Er.current.planEnabled}:{})")
-NEE_NEW = (b"let l=await li(`editUserQuery`,{target:e,newText:n,"
-           b"workspaceMode:i,conversationQuotes:a," + ER_SPREAD +
+TR_SPREAD = (b"...(Tr.current.modelSelection?{modelSelection:Tr.current."
+             b"modelSelection,mode:Tr.current.mode,"
+             b"planEnabled:Tr.current.planEnabled}:{})")
+NEE_NEW = (b"let l=await fi(`editUserQuery`,{target:e,newText:n,"
+           b"workspaceMode:i,conversationQuotes:a," + TR_SPREAD +
            b",...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
            b"c.logEpoch,void 0,s.acceleratedCard);"
            b"/*[zcode-editresend-ui]*/")
-BI_OLD = b"return li(`retryTurn`,{target:e},t,n.revision,n.logEpoch)"
-BI_NEW = (b"return li(`retryTurn`,{target:e," + ER_SPREAD +
+BI_OLD = b"return fi(`retryTurn`,{target:e},t,n.revision,n.logEpoch)"
+BI_NEW = (b"return fi(`retryTurn`,{target:e," + TR_SPREAD +
           b"}/*[zcode-editresend-ui]*/,t,n.revision,n.logEpoch)")
 
 
@@ -106,7 +106,7 @@ def patch_cjs(tpath: Path) -> None:
         changed = True
         log("cjs L1: bdi frozen replay -> payload-priority")
     else:
-        fail("cjs L1: neither pristine anchor nor v4 tag found (version "
+        fail("cjs L1: neither pristine anchor nor v5 tag found (version "
              "drift?)", 2)
 
     if RT_NEW in data:
@@ -129,7 +129,7 @@ def renderer_candidates(root: Path):
     assets = root / "out" / "renderer" / "assets"
     if not assets.is_dir():
         fail(f"renderer assets dir not found: {assets}")
-    keys = [NEE_OLD, BI_OLD, ER_SPREAD, b"zcode-editresend-ui"]
+    keys = [NEE_OLD, BI_OLD, TR_SPREAD, b"zcode-editresend-ui"]
     for js in sorted(assets.glob("*.js")):
         if js.stat().st_size < 100_000:
             continue
@@ -161,7 +161,7 @@ def patch_renderer(root: Path) -> None:
             fail(f"renderer {name} anchor matched {n} times (expected 1)", 2)
         data = data.replace(old, new, 1)
         changed = True
-        log(f"renderer {name}: Er.current selection spread applied")
+        log(f"renderer {name}: Tr.current selection spread applied")
 
     if not changed:
         log("renderer: already injected, skip")
@@ -171,7 +171,7 @@ def patch_renderer(root: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=f"{SLUG}: inject v4 fix")
+    ap = argparse.ArgumentParser(description=f"{SLUG}: inject v5 fix")
     ap.add_argument("--dir", default=None, help="unpacked asar root")
     ap.add_argument("--zcode-cjs", default=None,
                     help="path to resources/glm/zcode.cjs")

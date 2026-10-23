@@ -566,6 +566,30 @@ def main():
         check("zombie-legacy316: anchor restored",
               cjs6.read_bytes().count(b"f(),n(TYi(_))") == 1)
 
+        # 3.16.3 variant: shutdown handler uses n(RYi(_)) (fourth generation).
+        ZOMBIE_3163 = (
+            b'"use strict";'
+            b'function PQe(e){let t=e.process??process,n=e.exitProcess??(_=>process.exit(_)),'
+            b'o=Math.max(0,Math.trunc(e.cleanupTimeoutMs??CYi)),i=PYi(t.platform),a=[],c=!1,u=!1,'
+            b'f=r(()=>{if(!c){c=!0;for(let[_,b]of a)t.off(_,b)}},"unregister"),'
+            b'h=r(async _=>{u||(u=!0,e.abort?.(_),await CF(e.cleanup,o),await RQe(),'
+            b'f(),n(RYi(_)))},"shutdown");return h}\n'
+        )
+        work7 = tmp / "zombie-3163" / "unpacked"
+        cjs7 = make_tree(work7, cjs=ZOMBIE_3163)
+        zargs7 = ["--zcode-cjs", str(cjs7)]
+        env7 = dict(os.environ)
+        env7["USERPROFILE"] = str(tmp / "zombie-3163" / "home")
+        rc, out = run(zdir / "inject.py", zargs7, env7)
+        check("zombie-3163: inject exit 0", rc == 0, out[-300:])
+        check("zombie-3163: marker present", b"zcode-zombie-cleanup" in cjs7.read_bytes())
+        rc, out = run(zdir / "verify.py", zargs7, env7)
+        check("zombie-3163: verify exit 0", rc == 0, out[-300:])
+        rc, out = run(zdir / "inject.py", zargs7, env7)
+        check("zombie-3163: re-inject idempotent", rc == 0 and "[SKIP]" in out, out[-300:])
+        rc, out = run(zdir / "uninject.py", zargs7, env7)
+        check("zombie-3163: uninject byte-identical", cjs7.read_bytes() == ZOMBIE_3163)
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""edit-resend-model-fix v4: cjs + renderer uninjector for zcode-mod-kit.
+"""edit-resend-model-fix v5: cjs + renderer uninjector for zcode-mod-kit.
 
-Reverses v4 back to the OFFICIAL 3.16.2 state, byte-exactly, on both targets.
+Reverses v5 back to the OFFICIAL 3.16.3 state, byte-exactly, on both targets.
 """
 import argparse
 import subprocess
@@ -13,31 +13,31 @@ SLUG = "edit-resend-model-fix"
 
 BDI_STALE = (b"modelSelection:n.intent.modelSelection,"
              b"mode:n.intent.mode,planEnabled:n.intent.planEnabled,")
-BDI_PATCHED = (b"/*[zcode-editresend-model-fix:v4]*/"
+BDI_PATCHED = (b"/*[zcode-editresend-model-fix:v5]*/"
                b"modelSelection:t.payload?.modelSelection??n.intent.modelSelection,"
                b"mode:t.payload?.mode??n.intent.mode,"
                b"planEnabled:t.payload?.planEnabled!==void 0?"
                b"t.payload.planEnabled:n.intent.planEnabled,")
 RT_OLD = (b"retryTurn:m.object({target:KA}),setAssistantFeedback")
 RT_NEW = (b"retryTurn:m.object({target:KA,modelSelection:Ll.optional(),"
-          b"mode:Che.optional(),planEnabled:m.boolean().optional()}),"
+          b"mode:Ehe.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
-ER_SPREAD = (b"...(Er.current.modelSelection?{modelSelection:Er.current."
-             b"modelSelection,mode:Er.current.mode,"
-             b"planEnabled:Er.current.planEnabled}:{})")
-NEE_NEW = (b"let l=await li(`editUserQuery`,{target:e,newText:n,"
-           b"workspaceMode:i,conversationQuotes:a," + ER_SPREAD +
+TR_SPREAD = (b"...(Tr.current.modelSelection?{modelSelection:Tr.current."
+             b"modelSelection,mode:Tr.current.mode,"
+             b"planEnabled:Tr.current.planEnabled}:{})")
+NEE_NEW = (b"let l=await fi(`editUserQuery`,{target:e,newText:n,"
+           b"workspaceMode:i,conversationQuotes:a," + TR_SPREAD +
            b",...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
            b"c.logEpoch,void 0,s.acceleratedCard);"
            b"/*[zcode-editresend-ui]*/")
-NEE_OLD = (b"let l=await li(`editUserQuery`,{target:e,newText:n,"
+NEE_OLD = (b"let l=await fi(`editUserQuery`,{target:e,newText:n,"
            b"workspaceMode:i,conversationQuotes:a,"
            b"...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
            b"c.logEpoch,void 0,s.acceleratedCard);")
-BI_NEW = (b"return li(`retryTurn`,{target:e," + ER_SPREAD +
+BI_NEW = (b"return fi(`retryTurn`,{target:e," + TR_SPREAD +
           b"}/*[zcode-editresend-ui]*/,t,n.revision,n.logEpoch)")
-BI_OLD = b"return li(`retryTurn`,{target:e},t,n.revision,n.logEpoch)"
+BI_OLD = b"return fi(`retryTurn`,{target:e},t,n.revision,n.logEpoch)"
 
 
 def log(msg: str) -> None:
@@ -70,7 +70,7 @@ def uninject_cjs(tpath: Path) -> None:
 
     if BDI_PATCHED in data:
         if data.count(BDI_PATCHED) != 1:
-            fail("cjs bdi v4 patch matched != 1; abort", 2)
+            fail("cjs bdi v5 patch matched != 1; abort", 2)
         data = data.replace(BDI_PATCHED, BDI_STALE, 1)
         touched = True
         log("cjs L1: bdi restored to official frozen replay")
@@ -94,7 +94,7 @@ def renderer_candidates(root: Path):
     assets = root / "out" / "renderer" / "assets"
     if not assets.is_dir():
         fail(f"renderer assets dir not found: {assets}")
-    keys = [b"zcode-editresend-ui", ER_SPREAD, NEE_OLD, BI_OLD]
+    keys = [b"zcode-editresend-ui", TR_SPREAD, NEE_OLD, BI_OLD]
     for js in sorted(assets.glob("*.js")):
         if js.stat().st_size < 100_000:
             continue
@@ -127,7 +127,7 @@ def uninject_renderer(root: Path) -> None:
         touched = True
         log("renderer retry: reverted")
 
-    if b"zcode-editresend-ui" in data or ER_SPREAD in data:
+    if b"zcode-editresend-ui" in data or TR_SPREAD in data:
         fail("renderer: stray editresend markers remain; abort", 2)
 
     if touched:
@@ -137,7 +137,7 @@ def uninject_renderer(root: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=f"{SLUG}: un-inject v4 fix")
+    ap = argparse.ArgumentParser(description=f"{SLUG}: un-inject v5 fix")
     ap.add_argument("--dir", default=None, help="unpacked asar root")
     ap.add_argument("--zcode-cjs", default=None,
                     help="path to resources/glm/zcode.cjs")

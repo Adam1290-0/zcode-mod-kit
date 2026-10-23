@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""edit-resend-model-fix v4: cjs + renderer verifier for zcode-mod-kit.
+"""edit-resend-model-fix v5: cjs + renderer verifier for zcode-mod-kit.
 
-Exit 0 means v4 is fully applied on BOTH targets (ZCode 3.16.2).
+Exit 0 means v5 is fully applied on BOTH targets (ZCode 3.16.3).
 """
 import argparse
 import subprocess
@@ -13,21 +13,21 @@ SLUG = "edit-resend-model-fix"
 
 BDI_STALE = (b"modelSelection:n.intent.modelSelection,"
              b"mode:n.intent.mode,planEnabled:n.intent.planEnabled,")
-BDI_PATCHED = (b"/*[zcode-editresend-model-fix:v4]*/"
+BDI_PATCHED = (b"/*[zcode-editresend-model-fix:v5]*/"
                b"modelSelection:t.payload?.modelSelection??n.intent.modelSelection,"
                b"mode:t.payload?.mode??n.intent.mode,"
                b"planEnabled:t.payload?.planEnabled!==void 0?"
                b"t.payload.planEnabled:n.intent.planEnabled,")
 RT_NEW = (b"retryTurn:m.object({target:KA,modelSelection:Ll.optional(),"
-          b"mode:Che.optional(),planEnabled:m.boolean().optional()}),"
+          b"mode:Ehe.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
-ER_SPREAD = (b"...(Er.current.modelSelection?{modelSelection:Er.current."
-             b"modelSelection,mode:Er.current.mode,"
-             b"planEnabled:Er.current.planEnabled}:{})")
-NEE_FINAL = (b"let l=await li(`editUserQuery`,{target:e,newText:n,"
-             b"workspaceMode:i,conversationQuotes:a," + ER_SPREAD)
-BI_FINAL = (b"return li(`retryTurn`,{target:e," + ER_SPREAD)
+TR_SPREAD = (b"...(Tr.current.modelSelection?{modelSelection:Tr.current."
+             b"modelSelection,mode:Tr.current.mode,"
+             b"planEnabled:Tr.current.planEnabled}:{})")
+NEE_FINAL = (b"let l=await fi(`editUserQuery`,{target:e,newText:n,"
+             b"workspaceMode:i,conversationQuotes:a," + TR_SPREAD)
+BI_FINAL = (b"return fi(`retryTurn`,{target:e," + TR_SPREAD)
 
 
 def log(msg: str) -> None:
@@ -55,7 +55,7 @@ def node_check(data: bytes, label: str) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=f"{SLUG}: verify v4 state")
+    ap = argparse.ArgumentParser(description=f"{SLUG}: verify v5 state")
     ap.add_argument("--dir", default=None, help="unpacked asar root")
     ap.add_argument("--zcode-cjs", default=None,
                     help="path to resources/glm/zcode.cjs")
@@ -90,7 +90,7 @@ def main() -> None:
                 if js.stat().st_size < 100_000:
                     continue
                 rd = js.read_bytes()
-                if (b"zcode-editresend-ui" in rd or ER_SPREAD in rd
+                if (b"zcode-editresend-ui" in rd or TR_SPREAD in rd
                         or NEE_FINAL in rd or BI_FINAL in rd):
                     rcands.append(js)
         if len(rcands) != 1:
@@ -98,8 +98,8 @@ def main() -> None:
                             "(expected 1)")
         else:
             rd = rcands[0].read_bytes()
-            if ER_SPREAD not in rd:
-                problems.append("renderer: Er.current spread missing")
+            if TR_SPREAD not in rd:
+                problems.append("renderer: Tr.current spread missing")
             if NEE_FINAL not in rd:
                 problems.append("renderer: nee insertion missing")
             if BI_FINAL not in rd:
@@ -108,12 +108,12 @@ def main() -> None:
                 problems.append("renderer: ui marker count != 2")
             if not problems:
                 node_check(rd, "renderer")
-                log(f"renderer verified: Er.current spread in nee/retry "
+                log(f"renderer verified: Tr.current spread in nee/retry "
                     f"({rcands[0].name})")
 
     if problems:
         fail("verify failed: " + "; ".join(problems))
-    log("verified: edit-resend v4 fully applied")
+    log("verified: edit-resend v5 fully applied")
 
 
 if __name__ == "__main__":

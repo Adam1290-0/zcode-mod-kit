@@ -1,8 +1,8 @@
 {
   "slug": "edit-resend-model-fix",
   "display_name": "编辑重发回放修正",
-  "version": "4.0.0",
-  "description": "修编辑重发/重试后不走当前所选模型（ZCode 3.16.2）：cjs bdi(buildCanonicalIntent) 回放改 payload 优先（editUserQuery/retryTurn 全走此函数，官方仍冻结旧值）+ cjs retryTurn schema 放宽 + renderer 编辑(nee)/重试回调读草稿 ref Er.current（实时，切完模型立即可用）。禁用渲染快照与闭包读，只读 useRef。适配 3.14.3/3.14.4/3.15.3/3.16.2。",
+  "version": "5.0.0",
+  "description": "修编辑重发/重试后不走当前所选模型（ZCode 3.16.3）：cjs bdi(buildCanonicalIntent) 回放改 payload 优先（editUserQuery/retryTurn 全走此函数，官方仍冻结旧值）+ cjs retryTurn schema 放宽 + renderer 编辑/重试回调读草稿 ref Tr.current（实时，切完模型立即可用）。禁用渲染快照与闭包读，只读 useRef。适配 3.14.3/3.14.4/3.15.3/3.16.2/3.16.3。",
   "order": 65,
   "targets": [
     "zcode-cjs",

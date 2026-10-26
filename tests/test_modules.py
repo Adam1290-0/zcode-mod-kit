@@ -507,9 +507,11 @@ def main():
         env2 = dict(os.environ)
         env2["USERPROFILE"] = str(tmp / "zombie-legacy" / "home")
         rc, out = run(zdir / "inject.py", zargs2, env2)
-        check("zombie-legacy: inject SKIPs legacy patch",
-              rc == 0 and "legacy" in out.lower(), out[-300:])
-        check("zombie-legacy: file untouched by skip", cjs2.read_bytes() == LEGACY)
+        check("zombie-legacy: inject migrates legacy payload",
+              rc == 0 and "migrat" in out.lower(), out[-300:])
+        check("zombie-legacy: old absolute path repointed",
+              b"C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
+              not in cjs2.read_bytes())
         rc, out = run(zdir / "verify.py", zargs2, env2)
         check("zombie-legacy: verify exit 0", rc == 0, out[-300:])
         rc, out = run(zdir / "uninject.py", zargs2, env2)
@@ -556,9 +558,11 @@ def main():
         env4 = dict(os.environ)
         env4["USERPROFILE"] = str(tmp / "zombie-legacy315" / "home")
         rc, out = run(zdir / "inject.py", zargs4, env4)
-        check("zombie-legacy315: inject SKIPs legacy patch",
-              rc == 0 and "legacy" in out.lower(), out[-300:])
-        check("zombie-legacy315: file untouched by skip", cjs4.read_bytes() == LEGACY_315)
+        check("zombie-legacy315: inject migrates legacy payload",
+              rc == 0 and "migrat" in out.lower(), out[-300:])
+        check("zombie-legacy315: old absolute path repointed",
+              b"C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
+              not in cjs4.read_bytes())
 
         # 3.16.2 variant: shutdown handler uses n(TYi(_)) (third generation).
         ZOMBIE_316 = (
@@ -603,9 +607,11 @@ def main():
         env6 = dict(os.environ)
         env6["USERPROFILE"] = str(tmp / "zombie-legacy316" / "home")
         rc, out = run(zdir / "inject.py", zargs6, env6)
-        check("zombie-legacy316: inject SKIPs legacy patch",
-              rc == 0 and "legacy" in out.lower(), out[-300:])
-        check("zombie-legacy316: file untouched by skip", cjs6.read_bytes() == LEGACY_316)
+        check("zombie-legacy316: inject migrates legacy payload",
+              rc == 0 and "migrat" in out.lower(), out[-300:])
+        check("zombie-legacy316: old absolute path repointed",
+              b"C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
+              not in cjs6.read_bytes())
         rc, out = run(zdir / "uninject.py", zargs6, env6)
         check("zombie-legacy316: uninject exit 0", rc == 0, out[-300:])
         check("zombie-legacy316: anchor restored",
@@ -634,6 +640,91 @@ def main():
         check("zombie-3163: re-inject idempotent", rc == 0 and "[SKIP]" in out, out[-300:])
         rc, out = run(zdir / "uninject.py", zargs7, env7)
         check("zombie-3163: uninject byte-identical", cjs7.read_bytes() == ZOMBIE_3163)
+
+        # Portable runtime script (2026-10-23): the injected powershell call
+        # used to hardcode C:/Users/adamt/... - dead on every other machine.
+        # The script now ships as a module asset and is deployed to
+        # ~/.zcode/plugins/zombie-cleanup/, and an already-injected payload
+        # that still carries the old absolute path is migrated in place.
+        work8 = tmp / "zombie-portable" / "unpacked"
+        cjs8 = make_tree(work8, cjs=ZOMBIE_3163)
+        zargs8 = ["--zcode-cjs", str(cjs8)]
+        env8 = dict(os.environ)
+        env8["USERPROFILE"] = str(tmp / "zombie-portable" / "home")
+        env8["HOME"] = str(tmp / "zombie-portable" / "home")
+        rc, out = run(zdir / "inject.py", zargs8, env8)
+        check("zombie-portable: inject exit 0", rc == 0, out[-300:])
+        injected = cjs8.read_bytes()
+        # NB: the isolated HOME lives under this user's profile, so a bare
+        # "C:/Users/adamt" substring is expected; what must never come back is
+        # the specific legacy script path the old module hardcoded.
+        check("zombie-portable: legacy hardcoded script path absent",
+              b"C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
+              not in injected, out[-200:])
+        check("zombie-portable: points at the portable runtime dir",
+              b"/.zcode/plugins/zombie-cleanup/cleanup_mcp_zombies.ps1" in injected)
+        script = (tmp / "zombie-portable" / "home" / ".zcode" / "plugins" /
+                  "zombie-cleanup" / "cleanup_mcp_zombies.ps1")
+        check("zombie-portable: cleanup script deployed", script.is_file())
+        rc, out = run(zdir / "verify.py", zargs8, env8)
+        check("zombie-portable: verify exit 0", rc == 0, out[-300:])
+
+        # legacy payload already in the file -> must be repointed, not skipped
+        LEGACY_PAYLOAD = (
+            b"function(){try{require(\"child_process\").spawn(\"powershell\","
+            b"[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
+            b"\"-File\",\"C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1\","
+            b"\"-Tag\",\"zcode-exit\"],"
+            b"{detached:true,stdio:\"ignore\"}).unref()}catch(e){}}()"
+        )
+        legacy = ZOMBIE_3163.replace(
+            b"f(),n(RYi(_))",
+            b"/*zcode-zombie-cleanup*/" + LEGACY_PAYLOAD + b",f(),n(RYi(_))")
+        work9 = tmp / "zombie-migrate" / "unpacked"
+        cjs9 = make_tree(work9, cjs=legacy)
+        zargs9 = ["--zcode-cjs", str(cjs9)]
+        env9 = dict(os.environ)
+        env9["USERPROFILE"] = str(tmp / "zombie-migrate" / "home")
+        env9["HOME"] = str(tmp / "zombie-migrate" / "home")
+        check("zombie-migrate: fixture really carries the old path",
+              b"C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1" in cjs9.read_bytes())
+        rc, out = run(zdir / "inject.py", zargs9, env9)
+        check("zombie-migrate: inject exit 0", rc == 0, out[-300:])
+        migrated = cjs9.read_bytes()
+        check("zombie-migrate: old absolute path removed",
+              b"C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1" not in migrated,
+              out[-200:])
+        check("zombie-migrate: portable path substituted",
+              b"/.zcode/plugins/zombie-cleanup/cleanup_mcp_zombies.ps1" in migrated)
+        check("zombie-migrate: marker still unique",
+              migrated.count(b"zcode-zombie-cleanup") == 1)
+        rc, out = run(zdir / "inject.py", zargs9, env9)
+        check("zombie-migrate: second run is a clean no-op",
+              rc == 0 and cjs9.read_bytes() == migrated, out[-200:])
+        rc, out = run(zdir / "uninject.py", zargs9, env9)
+        check("zombie-migrate: uninject restores pristine",
+              rc == 0 and cjs9.read_bytes() == ZOMBIE_3163)
+
+        # Uninstall must work from a DIFFERENT home than the one that injected:
+        # the payload carries an absolute -File path, so an exact-path match
+        # would leave the patch behind when the profile moved (or when the old
+        # hardcoded-path build is being removed).
+        workA = tmp / "zombie-crossA" / "unpacked"
+        cjsA = make_tree(workA, cjs=ZOMBIE_3163)
+        envA = dict(os.environ)
+        envA["USERPROFILE"] = str(tmp / "zombie-crossA" / "home")
+        envA["HOME"] = str(tmp / "zombie-crossA" / "home")
+        envB = dict(os.environ)
+        envB["USERPROFILE"] = str(tmp / "zombie-crossB" / "home")
+        envB["HOME"] = str(tmp / "zombie-crossB" / "home")
+        rc, out = run(zdir / "inject.py", ["--zcode-cjs", str(cjsA)], envA)
+        check("zombie-crosshome: inject exit 0", rc == 0, out[-300:])
+        check("zombie-crosshome: payload present",
+              b"zcode-zombie-cleanup" in cjsA.read_bytes())
+        rc, out = run(zdir / "uninject.py", ["--zcode-cjs", str(cjsA)], envB)
+        check("zombie-crosshome: uninject from another home exit 0", rc == 0, out[-300:])
+        check("zombie-crosshome: byte-identical restore",
+              cjsA.read_bytes() == ZOMBIE_3163, out[-200:])
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

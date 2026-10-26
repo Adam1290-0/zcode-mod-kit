@@ -10,12 +10,24 @@ anchor (shutdown handler body `f(),n(eNi(_))`) is byte-unique in the
 clean 3.14.4 bundle; the patch is raw-byte and idempotent.
 """
 import argparse
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 SLUG = "zombie-cleanup"
+# Runtime home for the cleanup script. It must NOT point into this repository
+# (the kit folder is movable and, for every other user, is somewhere else
+# entirely) and it must NOT be an absolute path into one person's profile -
+# the previous hardcoded C:/Users/<name>/... made the module silently do
+# nothing on any other machine, because the spawned powershell simply failed
+# to find the script.
+RUNTIME_DIR = Path(os.path.expanduser("~/.zcode/plugins/zombie-cleanup"))
+CLEANUP_SCRIPT_NAME = "cleanup_mcp_zombies.ps1"
+CLEANUP_SCRIPT = str((RUNTIME_DIR / CLEANUP_SCRIPT_NAME).as_posix())
+
 # ZCode renames minified symbols between releases; the shutdown call shape is
 # f(),n(<exitCodeForSignal>(_)) — the inner function name has changed on every
 # release: eNi (<= 3.14.x) -> z7i (3.15.x) -> TYi (3.16.2) -> RYi (3.16.3).
@@ -27,17 +39,41 @@ ANCHOR_3163 = b"f(),n(RYi(_))"
 ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163)
 MARKER = b"zcode-zombie-cleanup"
 
-CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
 
-
-def _payload() -> bytes:
-    """The injected function(){}() snippet, shared by every patch format."""
+def _payload_for(script: str) -> bytes:
+    """The injected function(){}() snippet for a given script path."""
     return (
         b"function(){try{require(\"child_process\").spawn(\"powershell\","
         b"[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
-        b"\"-File\",\"" + CLEANUP_SCRIPT.encode() + b"\",\"-Tag\",\"zcode-exit\"],"
+        b"\"-File\",\"" + script.encode() + b"\",\"-Tag\",\"zcode-exit\"],"
         b"{detached:true,stdio:\"ignore\"}).unref()}catch(e){}}()"
     )
+
+
+def _payload() -> bytes:
+    """The injected snippet pointing at the portable runtime script."""
+    return _payload_for(CLEANUP_SCRIPT)
+
+
+# Script paths earlier kit versions hardcoded. Any injected payload still
+# referencing one of these is silently dead on every machine except the
+# original author's, so it is migrated in place rather than left alone.
+LEGACY_SCRIPTS = ("C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1",)
+
+
+def migrate_legacy_payload(data: bytes) -> tuple[bytes, bool]:
+    """Repoint an already-injected payload at the portable script path.
+
+    Returns (new_data, changed). Handles both the marked form and the older
+    unmarked patches, because both embedded the same absolute path.
+    """
+    changed = False
+    for old in LEGACY_SCRIPTS:
+        old_payload = _payload_for(old)
+        if old_payload in data:
+            data = data.replace(old_payload, _payload())
+            changed = True
+    return data, changed
 
 
 # Pre-kit manual patch (scripts/patch_zcode_mcp_cleanup.py) injected the same
@@ -85,6 +121,23 @@ def node_check(data: bytes) -> bool:
         Path(path).unlink(missing_ok=True)
 
 
+def deploy_script() -> Path:
+    """Copy the cleanup script into the persistent runtime dir.
+
+    The injected powershell call has to resolve on every machine, so the
+    script ships with the module and is copied somewhere stable rather than
+    being referenced from a per-user path in the repo.
+    """
+    src = Path(__file__).resolve().parent / "assets" / CLEANUP_SCRIPT_NAME
+    if not src.is_file():
+        fail(f"cleanup script asset missing: {src}")
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    dst = RUNTIME_DIR / CLEANUP_SCRIPT_NAME
+    shutil.copy2(src, dst)
+    log(f"deployed cleanup script -> {dst}")
+    return dst
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=f"{SLUG}: inject cleanup trigger")
     ap.add_argument("--dir", default=None, help=argparse.SUPPRESS)
@@ -97,7 +150,18 @@ def main() -> None:
     if not tpath.is_file():
         fail(f"target file not found: {tpath}")
     log(f"target: {tpath}")
+    deploy_script()
     data = tpath.read_bytes()
+
+    # Migrate payloads that still point at a per-user hardcoded script path.
+    # Must run BEFORE the idempotency gates, otherwise an old install skips
+    # forever and the module stays dead on machines that are not the author's.
+    data, migrated = migrate_legacy_payload(data)
+    if migrated:
+        if not node_check(data):
+            fail("syntax check failed while migrating legacy payload; nothing written", 3)
+        tpath.write_bytes(data)
+        log("migrated injected payload to the portable runtime script path")
 
     if MARKER in data:
         log("[SKIP] already injected")

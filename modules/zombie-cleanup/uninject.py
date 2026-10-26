@@ -6,6 +6,8 @@ Supports every known minified symbol generation (eNi <= 3.14.x, z7i 3.15.x,
 TYi 3.16.2, RYi 3.16.3) and the pre-kit legacy unmarked patch.
 """
 import argparse
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -17,7 +19,20 @@ ANCHOR_316 = b"f(),n(TYi(_))"
 ANCHOR_3163 = b"f(),n(RYi(_))"
 ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163)
 
-CLEANUP_SCRIPT = "C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1"
+RUNTIME_DIR = Path(os.path.expanduser("~/.zcode/plugins/zombie-cleanup"))
+CLEANUP_SCRIPT_NAME = "cleanup_mcp_zombies.ps1"
+CLEANUP_SCRIPT = str((RUNTIME_DIR / CLEANUP_SCRIPT_NAME).as_posix())
+
+# Path-agnostic shape of the injected payload. Matching the exact current
+# user's path is not enough: a payload injected under a different profile (or
+# the pre-portability hardcoded one) carries a different -File argument and
+# would stay behind forever, since uninstall is the only way to remove it.
+PAYLOAD_RE = re.compile(
+    rb"function\(\)\{try\{require\(\"child_process\"\)\.spawn\(\"powershell\","
+    rb"\[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
+    rb"\"-File\",\"[^\"]*cleanup_mcp_zombies\.ps1\",\"-Tag\",\"zcode-exit\"\],"
+    rb"\{detached:true,stdio:\"ignore\"\}\)\.unref\(\)\}catch\(e\)\{\}\}\(\)"
+)
 
 
 def _payload() -> bytes:
@@ -36,6 +51,29 @@ LEGACY_316 = b"f()," + POOLED + b",n(TYi(_))"
 LEGACY_3163 = b"f()," + POOLED + b",n(RYi(_))"
 
 
+def _strip_payloads(data: bytes) -> tuple[bytes, int]:
+    """Remove every injected payload regardless of the -File path it carries.
+
+    Two shapes exist:
+      marked:  /*zcode-zombie-cleanup*/<payload>,<anchor>
+      legacy:  f(),<payload>,<anchor>
+    The anchoring punctuation is consumed so the original anchor stays intact.
+    """
+    removed = 0
+
+    def drop_marked(m: re.Match) -> bytes:
+        nonlocal removed
+        removed += 1
+        return b""
+
+    data = re.sub(rb"/\*zcode-zombie-cleanup\*/" + PAYLOAD_RE.pattern + rb",",
+                  drop_marked, data)
+    data = re.sub(rb"f\(\)," + PAYLOAD_RE.pattern + rb",",
+                  lambda m: b"f(),", data)
+
+    return data, removed
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=f"{SLUG}: uninjector")
     ap.add_argument("--dir", default=None, help=argparse.SUPPRESS)
@@ -51,30 +89,29 @@ def main() -> None:
         sys.exit(1)
     data = tpath.read_bytes()
 
-    changed = False
-    for anchor in ANCHORS:
-        # marked form: marker + payload + ',' + anchor
-        marked_insert = b"/*zcode-zombie-cleanup*/" + POOLED + b","
-        if marked_insert + anchor in data:
-            data = data.replace(marked_insert + anchor, anchor, 1)
-            changed = True
-            break
-        # legacy unmarked form: f(), payload, n(<inner>) — the inner name
-        # follows whichever anchor matched (eNi/z7i/TYi), so derive it from
-        # the anchor itself rather than hard-coding a two-way ternary.
-        legacy = b"f()," + POOLED + b",n(" + anchor[len(b"f(),n("):]
-        if legacy in data:
-            data = data.replace(legacy, anchor, 1)
-            changed = True
-            break
+    new_data, removed = _strip_payloads(data)
+    if removed == 0:
+        # Fall back to exact-match passes for any anchor generation whose
+        # surrounding text differs from the generalised shape.
+        for anchor in ANCHORS:
+            marked_insert = b"/*zcode-zombie-cleanup*/" + POOLED + b","
+            if marked_insert + anchor in data:
+                new_data = data.replace(marked_insert + anchor, anchor, 1)
+                removed = 1
+                break
+            legacy = b"f()," + POOLED + b",n(" + anchor[len(b"f(),n("):]
+            if legacy in data:
+                new_data = data.replace(legacy, anchor, 1)
+                removed = 1
+                break
 
-    if not changed:
+    if removed == 0:
         print(f"[{SLUG}] [SKIP] not injected")
         return
-    if MARKER in data:
+    if MARKER in new_data:
         print(f"[{SLUG}] [ERROR] marker still present after uninject")
         sys.exit(1)
-    tpath.write_bytes(data)
+    tpath.write_bytes(new_data)
     print(f"[{SLUG}] restored: cleanup trigger removed from shutdown handler")
 
 

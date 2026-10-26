@@ -4,9 +4,9 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.5-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.6-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-给 [ZCode](https://zcode.z.ai) 桌面端的**六合一补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
+给 [ZCode](https://zcode.z.ai) 桌面端的**九模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
 **本仓库是以下独立项目（均已停止单独更新）的整合后续**：
 
@@ -123,7 +123,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3（3.11.2 及更早见各模块历史 README） |
+| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3（3.11.2 及更早见各模块历史 README） |
 
 > ⚠️ This is a **community third-party patch suite**. It modifies ZCode's `app.asar` and `zcode.cjs`, is **not affiliated with ZCode**, and every module can break on a ZCode update. Read [DISCLAIMER.md](DISCLAIMER.md) before use. ZCode is closed-source and updates frequently — if your version is not listed, do not patch; open an issue with your version number.
 
@@ -172,6 +172,13 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 ### 更新日志 / Changelog
 
+### v1.6.6
+
+- 🐛 **修复 zombie-cleanup 在他人机器上必然失效**：注入的 powershell 调用硬编码了作者本机的 `C:/Users/<name>/.zcode/scripts/...`，而该脚本从未随包发布——模块注入成功但功能静默死亡。现在脚本作为模块资产发布，由 `inject.py` 部署到 `~/.zcode/plugins/zombie-cleanup/`；已注入的旧路径会在重装时自动迁移（`verify.py` 同时检查脚本是否就位，缺失即判失败并触发重部署）
+- 🧹 仓库清理：移除内部协作文档 `handoffs/`、取消跟踪本机状态文件 `config.json`、`UPGRADING.md` 重写为纯技术升级指南（去掉会话 ID / 本机路径 / 内部协作描述）；README 修正「六合一」错误表述与英文兼容表缺失的 3.16.x
+- 🧪 全套 **206 项测试全绿**（engine 20 + modules 134 + edge 52），新增可移植路径、旧注入迁移、跨账户卸载 12 项回归
+
+
 ### v1.6.5
 
 - 🐛 **修复「运行时 wrapper 永不更新」**（route-override v1.0.10 / pin v1.0.7）：安装器的外层跳过门只问 `verify.py`，而两个 verifier 只看 asar 与 zcode.cjs 的注入标记——`~/.zcode/plugins/<slug>/` 下的 wrapper 由 `inject.py` 部署，一旦跳过 `inject.py`，旧 wrapper 就永远留在机器上。
@@ -180,21 +187,11 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 - 🧪 全套 **190 项测试全绿**（engine 20 + modules 118 + edge 52），新增 12 项「陈旧 wrapper 必须被拒 + 重装必须复原」回归
 
 
-### v1.6.4
-
-- 🐛 **修复端口重试的监听器泄漏**（route-override v1.0.9 / pin v1.0.6 / account-switcher v1.0.9）：三个模块的本地服务在 `EADDRINUSE` 时每 3 秒重试一次，但每次都给 `server.listen()` 传一个新回调——旧回调不会被解绑，一直挂在同一个 `listening` 事件上。端口被占越久挂得越多，端口终于释放时全部一起触发。
-  - 实测症状：日志里同 1 毫秒刷出 **164 条重复的 `(recovered)`**（route 与 pin 各 164 条），并触发 `MaxListenersExceededWarning`
-  - 修法：`listening` 改成一个常驻处理器，重试调用不再传回调；`recovered` 只在真的从重试状态恢复时记录一次
-  - A/B 对照实测：旧实现 5 次重试→7 个监听器、40 次→42 个（线性泄漏）；新实现任意次数恒为 2 个
-- 🧪 全套 **178 项测试全绿**（engine 20 + modules 106 + edge 52）；三份 JS 均过 `node --check`
-
-
-### v1.6.3
+### ZCode 3.16.3 适配与修复（原 v1.6.3 / v1.6.4，已合并）
 
 - ✅ 适配 ZCode **3.16.3**（asar 341.4MB）：edit-resend-model-fix → **v5.0.0**（分发器 li→fi、草稿 ref Er→Tr.current、retryTurn schema 别名 Che→Ehe）；zombie-cleanup → **v1.0.4**（shutdown 内层函数第五代改名 TYi→RYi，锚点表扩为 4 代）；skin-manager / account-switcher / route-override / pin / usage-stats-fallback 零锚点漂移
+- 🐛 修复端口重试的监听器泄漏（route-override / pin / account-switcher）：`EADDRINUSE` 重试时每次给 `server.listen()` 传新回调，旧回调不解绑会持续累积，端口释放时一次性全部触发。改为单一常驻 `listening` 处理器；A/B 实测旧实现 40 次重试累积 42 个监听器，新实现恒为 2 个
 - 🧪 真实 3.16.3 解包树端到端验证：9 模块全注入 → node --check（zcode.cjs / main / renderer chunk）全过 → 全部卸载 → **zcode.cjs 字节级还原 pristine**，asar 侧标记全清零
-- 🧪 全套 **178 项测试全绿**（engine 20 + modules 106 + edge 52），新增 zombie RYi 锚点 5 项
-
 
 ### v1.6.2
 

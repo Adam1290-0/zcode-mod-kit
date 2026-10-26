@@ -1,8 +1,8 @@
 {
   "slug": "zombie-cleanup",
   "display_name": "僵尸进程清理",
-  "version": "1.0.4",
-  "description": "zcode.cjs 退出钩子自动清理孤儿 MCP 进程：在 shutdown handler 内注入 powershell 调用 cleanup_mcp_zombies.ps1（白名单制，只杀父进程已死的 node 子进程） | zcode.cjs 3.15.3: shutdown anchor eNi->z7i (dual-anchor support)",
+  "version": "1.1.0",
+  "description": "zcode.cjs 退出钩子自动清理孤儿 MCP 进程：在 shutdown handler 内注入 powershell 调用 cleanup_mcp_zombies.ps1（白名单制，只杀父进程已死的 node 子进程）。脚本随模块发布并部署到 ~/.zcode/plugins/zombie-cleanup/，不再硬编码作者机器路径；旧注入会在重装时自动迁移。适配 3.14.x-3.16.3（shutdown 锚点四代：eNi/z7i/TYi/RYi）。",
   "order": 75,
   "targets": [
     "zcode-cjs"

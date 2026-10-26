@@ -3,3 +3,7 @@ config.json
 *.log
 # scratch trees from ZCode upgrade adaptation checks (1GB+); never commit
 .upgrade-check/
+
+# internal collaboration material - never published
+_local-handoffs/
+handoffs/

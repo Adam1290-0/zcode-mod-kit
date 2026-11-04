@@ -3,7 +3,7 @@
 
 Restores the original shutdown handler by removing the injected trigger.
 Supports every known minified symbol generation (eNi <= 3.14.x, z7i 3.15.x,
-TYi 3.16.2, RYi 3.16.3) and the pre-kit legacy unmarked patch.
+TYi 3.16.2, RYi 3.16.3, Ios 3.17.2) and the pre-kit legacy unmarked patch.
 """
 import argparse
 import os
@@ -17,7 +17,8 @@ ANCHOR_314 = b"f(),n(eNi(_))"
 ANCHOR_315 = b"f(),n(z7i(_))"
 ANCHOR_316 = b"f(),n(TYi(_))"
 ANCHOR_3163 = b"f(),n(RYi(_))"
-ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163)
+ANCHOR_3172 = b"f(),n(Ios(_))"
+ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163, ANCHOR_3172)
 
 RUNTIME_DIR = Path(os.path.expanduser("~/.zcode/plugins/zombie-cleanup"))
 CLEANUP_SCRIPT_NAME = "cleanup_mcp_zombies.ps1"
@@ -49,6 +50,7 @@ LEGACY_314 = b"f()," + POOLED + b",n(eNi(_))"
 LEGACY_315 = b"f()," + POOLED + b",n(z7i(_))"
 LEGACY_316 = b"f()," + POOLED + b",n(TYi(_))"
 LEGACY_3163 = b"f()," + POOLED + b",n(RYi(_))"
+LEGACY_3172 = b"f()," + POOLED + b",n(Ios(_))"
 
 
 def _strip_payloads(data: bytes) -> tuple[bytes, int]:

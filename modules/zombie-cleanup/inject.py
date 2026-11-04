@@ -11,6 +11,7 @@ clean 3.14.4 bundle; the patch is raw-byte and idempotent.
 """
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,13 +31,15 @@ CLEANUP_SCRIPT = str((RUNTIME_DIR / CLEANUP_SCRIPT_NAME).as_posix())
 
 # ZCode renames minified symbols between releases; the shutdown call shape is
 # f(),n(<exitCodeForSignal>(_)) — the inner function name has changed on every
-# release: eNi (<= 3.14.x) -> z7i (3.15.x) -> TYi (3.16.2) -> RYi (3.16.3).
+# release: eNi (<= 3.14.x) -> z7i (3.15.x) -> TYi (3.16.2) -> RYi (3.16.3)
+# -> Ios (3.17.2).
 # All known generations are supported; exactly one must match.
 ANCHOR_314 = b"f(),n(eNi(_))"
 ANCHOR_315 = b"f(),n(z7i(_))"
 ANCHOR_316 = b"f(),n(TYi(_))"
 ANCHOR_3163 = b"f(),n(RYi(_))"
-ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163)
+ANCHOR_3172 = b"f(),n(Ios(_))"
+ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163, ANCHOR_3172)
 MARKER = b"zcode-zombie-cleanup"
 
 
@@ -55,23 +58,33 @@ def _payload() -> bytes:
     return _payload_for(CLEANUP_SCRIPT)
 
 
-# Script paths earlier kit versions hardcoded. Any injected payload still
-# referencing one of these is silently dead on every machine except the
-# original author's, so it is migrated in place rather than left alone.
-LEGACY_SCRIPTS = ("C:/Users/adamt/.zcode/scripts/cleanup_mcp_zombies.ps1",)
+# Every pre-portability build embedded an absolute path into one specific
+# user profile, which is why the module was dead on every other machine. The
+# exact path is not needed to migrate: any payload whose -File argument ends in
+# cleanup_mcp_zombies.ps1 but is NOT the portable runtime path is a legacy one,
+# and is repointed in place.
+LEGACY_PAYLOAD_RE = re.compile(
+    rb"function\(\)\{try\{require\(\"child_process\"\)\.spawn\(\"powershell\","
+    rb"\[\"-NoProfile\",\"-ExecutionPolicy\",\"Bypass\",\"-WindowStyle\",\"Hidden\","
+    rb"\"-File\",\"[^\"]*cleanup_mcp_zombies\.ps1\",\"-Tag\",\"zcode-exit\"\],"
+    rb"\{detached:true,stdio:\"ignore\"\}\)\.unref\(\)\}catch\(e\)\{\}\}\(\)"
+)
 
 
 def migrate_legacy_payload(data: bytes) -> tuple[bytes, bool]:
     """Repoint an already-injected payload at the portable script path.
 
     Returns (new_data, changed). Handles both the marked form and the older
-    unmarked patches, because both embedded the same absolute path.
+    unmarked patches. A payload already carrying the portable path matches the
+    regex but is left untouched (replace with identical bytes is a no-op), so
+    running twice is safe.
     """
+    current = _payload()
     changed = False
-    for old in LEGACY_SCRIPTS:
-        old_payload = _payload_for(old)
-        if old_payload in data:
-            data = data.replace(old_payload, _payload())
+    for m in list(LEGACY_PAYLOAD_RE.finditer(data)):
+        found = m.group(0)
+        if found != current:
+            data = data.replace(found, current)
             changed = True
     return data, changed
 
@@ -84,6 +97,7 @@ LEGACY_INSERT_314 = b"f()," + _payload() + b",n(eNi(_))"
 LEGACY_INSERT_315 = b"f()," + _payload() + b",n(z7i(_))"
 LEGACY_INSERT_316 = b"f()," + _payload() + b",n(TYi(_))"
 LEGACY_INSERT_3163 = b"f()," + _payload() + b",n(RYi(_))"
+LEGACY_INSERT_3172 = b"f()," + _payload() + b",n(Ios(_))"
 
 
 def find_anchor(data: bytes) -> bytes:
@@ -170,7 +184,7 @@ def main() -> None:
     # Pre-kit manual patches: payload present without the marker (either
     # minified-symbol generation). Functionally identical — accept and SKIP.
     for legacy in (LEGACY_INSERT_314, LEGACY_INSERT_315, LEGACY_INSERT_316,
-                   LEGACY_INSERT_3163):
+                   LEGACY_INSERT_3163, LEGACY_INSERT_3172):
         if legacy in data:
             log("[SKIP] legacy unmarked patch detected; functionally identical, "
                 "leaving as-is")

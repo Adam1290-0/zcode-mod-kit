@@ -405,13 +405,57 @@
       );
     }
     if (c.accentColor) {
-      lookCss.push(".theme-zai-dark{--color-primary:" + c.accentColor + ";--color-brand:" + c.accentColor + "}");
+      // --color-accent is a generic emphasis token introduced around 3.17;
+      // cover it together with primary/brand so the theme colour is consistent.
+      lookCss.push(".theme-zai-dark{--color-primary:" + c.accentColor +
+                   ";--color-brand:" + c.accentColor +
+                   ";--color-accent:" + c.accentColor + "}");
+    }
+    // Highspeed composer (ZCode 3.17.x): the fast-mode input surface ships a
+    // fixed purple palette. Follow the skin theme colour when one is set, and
+    // keep the surface tied to the skin's "input" opacity so it never reads as
+    // an opaque block on a translucent skin.
+    if (c.accentColor) {
+      var hs = c.accentColor;
+      // A malformed accent (empty, non-hex) would emit a valueless custom
+      // property such as "--color-highspeed-accent:;". CSS drops that
+      // declaration, so the upstream default silently survives and the skin
+      // ends up half-themed instead of clearly broken. Skip the block unless
+      // the value is a usable hex colour; otherwise the official palette stays.
+      var hsA = rgbaFromHex(hs, 0.76);   // particle body
+      var hsGlow = rgbaFromHex(hs, 0.68); // highlight glow
+      if (/^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$/.test(String(hs))) {
+        lookCss.push(
+          ".theme-zai-dark{" +
+          "--color-highspeed-accent:" + hs + ";" +
+          "--color-highspeed-composer-border-idle:" + hs + ";" +
+          "--color-highspeed-composer-border-hover:" + hs + ";" +
+          "--color-highspeed-model-sweep-highlight:" + hs + ";" +
+          "--color-highspeed-particle:" + hsA + ";" +
+          "--color-highspeed-particle-highlight:" + hs + ";" +
+          "--color-highspeed-particle-highlight-glow:" + hsGlow + ";" +
+          "}"
+        );
+      }
+    }
+    // Highspeed composer surface: keep it on the same tint/opacity as the
+    // "input" region instead of its hardcoded #151515.
+    if (c.opacities && c.opacities.input != null) {
+      lookCss.push(".theme-zai-dark{--color-highspeed-composer-surface:rgba(" +
+                   (c.tint || "22,22,22") + "," + c.opacities.input + ")}");
     }
     if (c.cursorColor) lookCss.push(".theme-zai-dark{--color-terminal-cursor:" + c.cursorColor + "}");
     if (c.cursorBlink) {
       lookCss.push(
         "@keyframes zc-cursor-blink{0%,49%{opacity:1}50%,100%{opacity:0}}" +
-        ".terminal-xterm-shell .xterm-cursor-layer,.terminal-xterm-shell .xterm-screen canvas.xterm-cursor-canvas{animation:zc-cursor-blink 1s step-end infinite !important}"
+        // ZCode 3.17.2 dropped the canvas renderer: xterm-cursor-layer /
+        // xterm-cursor-canvas no longer exist. The DOM renderer draws the
+        // cursor as span.xterm-cursor.xterm-cursor-block(.xterm-cursor-blink)
+        // inside .xterm-rows, and xterm injects its own blink animation at
+        // runtime -> !important is required to override it.
+        ".terminal-xterm-shell .xterm-rows .xterm-cursor.xterm-cursor-blink," +
+        ".terminal-xterm-shell .xterm-cursor.xterm-cursor-block{" +
+        "animation:zc-cursor-blink 1s step-end infinite !important}"
       );
     }
     if (c.radiusScale !== 100) {
@@ -690,6 +734,19 @@
     if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
     var n = parseInt(hex, 16);
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  function rgbaFromHex(hex, alpha) {
+    var h = String(hex).replace(/^#/, "");
+    // 3- and 6-digit hex only. Note "bad" IS valid 3-digit hex (a real CSS
+    // colour, #bbaadd), so it is accepted by design. Anything else - empty
+    // string, "red", "#gggggg" - falls through and is returned unchanged,
+    // which lets callers detect a bad input by comparing against the input.
+    if (!/^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/.test(h)) return hex;
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    var a = Math.max(0, Math.min(1, Number(alpha)));
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a.toFixed(2) + ")";
   }
 
   function rgbToHex(r, g, b) {

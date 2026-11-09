@@ -1,8 +1,8 @@
 {
   "slug": "skin-manager",
   "display_name": "皮肤管理",
-  "version": "2.2.3",
-  "description": "壁纸/透明度/氛围灯/加载图标/用量状态条联动 | adapt 3.16.2: idle indicator removed by upstream (color control auto-hides)",
+  "version": "2.3.0",
+  "description": "壁纸/透明度/氛围灯/加载图标/用量状态条联动 | adapt 3.17.2: highspeed composer theming + xterm DOM-renderer cursor blink",
   "order": 30,
   "targets": [
     "asar"

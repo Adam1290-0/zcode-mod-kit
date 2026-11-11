@@ -18,7 +18,9 @@ ANCHOR_315 = b"f(),n(z7i(_))"
 ANCHOR_316 = b"f(),n(TYi(_))"
 ANCHOR_3163 = b"f(),n(RYi(_))"
 ANCHOR_3172 = b"f(),n(Ios(_))"
-ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163, ANCHOR_3172)
+ANCHOR_3180 = b"d(),n(mgs(_))"
+ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163, ANCHOR_3172,
+           ANCHOR_3180)
 
 RUNTIME_DIR = Path(os.path.expanduser("~/.zcode/plugins/zombie-cleanup"))
 CLEANUP_SCRIPT_NAME = "cleanup_mcp_zombies.ps1"
@@ -70,8 +72,10 @@ def _strip_payloads(data: bytes) -> tuple[bytes, int]:
 
     data = re.sub(rb"/\*zcode-zombie-cleanup\*/" + PAYLOAD_RE.pattern + rb",",
                   drop_marked, data)
-    data = re.sub(rb"f\(\)," + PAYLOAD_RE.pattern + rb",",
-                  lambda m: b"f(),", data)
+    # The unregister call's symbol rotates too (f on <=3.17.2, d on 3.18.0),
+    # so the legacy shape match must not assume `f()`. Capture and replay it.
+    data = re.sub(rb"([A-Za-z_$][\w$]*)\(\)," + PAYLOAD_RE.pattern + rb",",
+                  lambda m: m.group(1) + b"(),", data)
 
     return data, removed
 
@@ -101,7 +105,10 @@ def main() -> None:
                 new_data = data.replace(marked_insert + anchor, anchor, 1)
                 removed = 1
                 break
-            legacy = b"f()," + POOLED + b",n(" + anchor[len(b"f(),n("):]
+            # The unregister symbol rotates (f on <=3.17.2, d on 3.18.0):
+            # rebuild the legacy shape from the anchor's own prefix.
+            prefix, _, rest = anchor.partition(b"(),n(")
+            legacy = prefix + b"()," + POOLED + b",n(" + rest
             if legacy in data:
                 new_data = data.replace(legacy, anchor, 1)
                 removed = 1

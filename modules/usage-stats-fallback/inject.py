@@ -27,40 +27,85 @@ are stable). The patch is idempotent: markers already present -> SKIP.
 All operations are raw-byte to preserve line endings.
 """
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 SLUG = "usage-stats-fallback"
-ANCHOR1 = b"let R=e.prepare("
+# ANCHOR2 is a literal and has survived every release so far.
 ANCHOR2 = b"return{totals:{"
 MARKER1 = b"zusage-fb-day"
 MARKER2 = b"zusage-fb-merge"
 
+# ANCHOR1 is "let <X>=e.prepare(`select ... from model_usage ... model_id as
+# modelId ... group by dayIndex, model_id`)". The minified name <X> rotates on
+# some releases (R on 3.17.2, P on 3.18.0, ...), so it is discovered at run
+# time instead of being hardcoded. The semantic tail is what makes it unique.
+
+ANCHOR1_RE = re.compile(
+    rb"let (\w+)=e\.prepare\(`select\s+cast\(\(started_at \+ \?\) / \? as integer\) as dayIndex,"
+    rb"\s+model_id as modelId,"
+)
+
+
+def find_anchor1(data: bytes):
+    """Return (anchor_bytes, var_name) for the model-by-day query, or (None, None).
+
+    Must match exactly once inside the bundle; anything else means the
+    bundle drifted and injection is refused.
+    """
+    hits = list(ANCHOR1_RE.finditer(data))
+    if len(hits) != 1:
+        return None, None
+    m = hits[0]
+    return m.group(0), m.group(1)
+
+# ---- clamp semantics -------------------------------------------------------
+# The message table is written in BOTH eras: pre-2026-09-01 (the only source,
+# because model_usage did not exist yet) and post-2026-09-01 (a duplicate of
+# what model_usage already records). Summing message over the whole window
+# would therefore double-count the new era. The fallback is clamped to the
+# window where model_usage has no data:
+#
+#   msgEnd = min(until, min(started_at) FROM model_usage)   # or `until` if empty
+#   message rows are read from [n, msgEnd) only
+#   only that segment (msgSum) is added to the summary totals
+#
+# This keeps "7d"/"30d" exact, and makes "all" show old+new without inflation.
+# 2026-11: ZCode also prunes model_usage to a 30-day window, so min(started_at)
+# slides forward; the clamp follows it automatically because it is evaluated
+# per query.
 INSERT1 = (
     # 3.15.3: impl renamed Xkr->h2r, vars s->i, E->C (day map). 3.14.x used
     # s/E internally; INSERT1 must match the CURRENT bundle. These exact
     # identifiers are unique inside the function body.
     b";/*zusage-fb-day*/"
-    b"let zz=n;if(zz<Date.parse('2026-09-01')){"
+    b"let msgEnd=e.prepare('select min(started_at) as m from model_usage').get(),"
+    b"msgCap=(msgEnd&&msgEnd.m)||o,msgSum=0;"
+    b"if(msgCap>o)msgCap=o;"
+    b"if(n<msgCap){"
     b"let qq=e.prepare('select cast((time_created+?)/? as integer) as dayIndex,"
     b"coalesce(sum(cast(json_extract(data,\\'$.tokens.input\\') as integer)+"
     b"cast(json_extract(data,\\'$.tokens.output\\') as integer)),0) as totalTokens "
     b"from message where time_created>=? and time_created<? "
     b"and json_extract(data,\\'$.semantics.kind\\')=\\'assistant_response\\' "
     b"and json_extract(data,\\'$.tokens\\') is not null group by dayIndex')"
-    b".all(i,a,n,o);"
+    b".all(i,a,n,msgCap);"
     b"for(let L of qq){let U=C.get(L.dayIndex);"
     b"U||(U={dayIndex:L.dayIndex,totalTokens:0,turnCount:0,toolCallCount:0},"
-    b"C.set(L.dayIndex,U));U.totalTokens+=Number(L.totalTokens)}}"
+    b"C.set(L.dayIndex,U));U.totalTokens+=Number(L.totalTokens);"
+    b"msgSum+=Number(L.totalTokens)}}"
 )
 
 INSERT2 = (
+    # c.totalTokens already holds the model_usage aggregate, so only the
+    # clamped message segment (msgSum) is added here. Re-summing C.values()
+    # would count model_usage twice.
     b";/*zusage-fb-merge*/"
-    b"let mt=0,mi=0;for(let L of C.values()){mt+=L.totalTokens;mi+=L.turnCount}"
-    b";c.totalTokens=(Number(c.totalTokens??0)+mt)||0"
-    b";c.modelRequestCount=Number(c.modelRequestCount??0);"
+    b"c.totalTokens=(Number(c.totalTokens??0)+msgSum)||0;"
+    b"c.modelRequestCount=Number(c.modelRequestCount??0);"
 )
 
 def log(msg: str) -> None:
@@ -107,16 +152,18 @@ def main() -> None:
         log("[SKIP] already injected")
         return
 
-    # --- anchor1: day-level fallback before let R=e.prepare( ---
-    if data.count(ANCHOR1) != 1:
-        fail(f"anchor1 matched {data.count(ANCHOR1)} times (expected 1); "
-             f"refusing to inject (version drift?)", 2)
+    # --- anchor1: day-level fallback before let <X>=e.prepare(`select ---
+    anchor1, var = find_anchor1(data)
+    if anchor1 is None:
+        fail("anchor1 (model-by-day query) not found exactly once; "
+             "refusing to inject (version drift?)", 2)
+    log(f"anchor1 var: let {var.decode()}=e.prepare(")
     # --- anchor2: totals merge before return{totals:{ ---
     if data.count(ANCHOR2) != 1:
         fail(f"anchor2 matched {data.count(ANCHOR2)} times (expected 1); "
              f"refusing to inject (version drift?)", 2)
 
-    new = data.replace(ANCHOR1, INSERT1 + ANCHOR1, 1)
+    new = data.replace(anchor1, INSERT1 + anchor1, 1)
     new = new.replace(ANCHOR2, INSERT2 + ANCHOR2, 1)
 
     if not node_check(new):

@@ -1,8 +1,8 @@
 {
   "slug": "usage-stats-fallback",
   "display_name": "历史用量回退",
-  "version": "1.0.1",
-  "description": "zcode.cjs Xkr(queryAppUsage) 回退：当 model_usage 无记录的时间段，从 message.data.tokens 旧格式聚合用量，恢复 2026-09-01 前的历史数据 | zcode.cjs 3.15.3: impl renamed Xkr->h2r, vars s->i/E->C/l->c",
+  "version": "1.1.1",
+  "description": "zcode.cjs queryAppUsage 回退：model_usage 无记录的时间段从 message.data.tokens 旧格式聚合用量，恢复 2026-09-01 前历史 | 1.1.0: 锚点按语义自动发现（let <X>=e.prepare 的 X 每版轮换，3.17.2=R, 3.18.0=P）+ clamp 修正（message 只读到 model_usage 起点，避免 9 月后双写重复计数） | fix: uninject no longer hardcodes the minified prepare var name (left markers behind on 3.18.0)",
   "order": 70,
   "targets": [
     "zcode-cjs"

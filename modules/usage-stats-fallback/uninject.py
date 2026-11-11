@@ -8,33 +8,50 @@ import sys
 from pathlib import Path
 
 SLUG = "usage-stats-fallback"
-ANCHOR1 = b"let R=e.prepare("
+# ANCHOR1's minified variable name rotates between releases (R on 3.17.2,
+# P on 3.18.0, ...). inject.py discovers it with a regex, so uninject must NOT
+# hardcode one spelling - doing so left the block in place on every release
+# whose name differed (observed on 3.18.0: markers still present after
+# uninject). Removal is therefore marker-bounded: each insert starts at its
+# own /*zusage-fb-*\/ marker and ends at the literal tail below.
 ANCHOR2 = b"return{totals:{"
 MARKER1 = b"zusage-fb-day"
 MARKER2 = b"zusage-fb-merge"
+# The insert is ONE contiguous 1209-byte span that WRAPS the upstream
+# model_usage query (verified by common-prefix/suffix alignment against a real
+# injection on 3.18.0). Its shape:
+#   ;/*zusage-fb-day*/ <day-fallback> }} [upstream query: let <X>=e.prepare(...)...all(i,a,n,o);]
+#   ;/*zusage-fb-merge*/ <merge> modelRequestCount??0     <- then upstream: )||0 ... hmm
+# Cutting exactly this span is not expressible with markers alone (the upstream
+# query sits inside), so removal is done in two marker-bounded pieces:
+#   piece A: ';/*zusage-fb-day*/' .. the 'let ' that starts the upstream query
+#   piece B: ';;/*zusage-fb-merge*/' .. the end of the injected merge expression
+# Both bounds are literals from the real bundle, not minified names.
+PREFIX_A = b";/*zusage-fb-day*/"
+TAIL_A = b"}}let "                       # block A ends here; 'let ' is upstream
+PREFIX_B = b";;/*zusage-fb-merge*/"
+TAIL_B = b"c.modelRequestCount=Number(c.modelRequestCount??0)"
 
-# The injected form is: INSERT1 + ANCHOR1 and INSERT2 + ANCHOR2
-# We must reconstruct the exact insert to remove it.
-INSERT1 = (
-    b";/*zusage-fb-day*/"
-    b"let zz=n;if(zz<Date.parse('2026-09-01')){"
-    b"let qq=e.prepare('select cast((time_created+?)/? as integer) as dayIndex,"
-    b"coalesce(sum(cast(json_extract(data,\\'$.tokens.input\\') as integer)+"
-    b"cast(json_extract(data,\\'$.tokens.output\\') as integer)),0) as totalTokens "
-    b"from message where time_created>=? and time_created<? "
-    b"and json_extract(data,\\'$.semantics.kind\\')=\\'assistant_response\\' "
-    b"and json_extract(data,\\'$.tokens\\') is not null group by dayIndex')"
-    b".all(i,a,n,o);"
-    b"for(let L of qq){let U=C.get(L.dayIndex);"
-    b"U||(U={dayIndex:L.dayIndex,totalTokens:0,turnCount:0,toolCallCount:0},"
-    b"C.set(L.dayIndex,U));U.totalTokens+=Number(L.totalTokens)}}"
-)
-INSERT2 = (
-    b";/*zusage-fb-merge*/"
-    b"let mt=0,mi=0;for(let L of C.values()){mt+=L.totalTokens;mi+=L.turnCount}"
-    b";c.totalTokens=(Number(c.totalTokens??0)+mt)||0"
-    b";c.modelRequestCount=Number(c.modelRequestCount??0);"
-)
+def _cut_blocks(data: bytes) -> bytes:
+    """Remove both inserted pieces, keeping the upstream query between them.
+
+    Piece A sits before the upstream model_usage query, piece B after it (see
+    the constants above). Each is cut from its literal prefix to its literal
+    tail; neither bound contains a minified variable name, which rotate every
+    release.
+    """
+    a = data.find(PREFIX_A)
+    if a >= 0:
+        t = data.find(TAIL_A, a)
+        if t >= 0:
+            # keep the trailing `let ` (upstream query start)
+            data = data[:a] + data[t + len(TAIL_A) - len(b"let "):]
+    b = data.find(PREFIX_B)
+    if b >= 0:
+        t2 = data.find(TAIL_B, b)
+        if t2 >= 0:
+            data = data[:b] + data[t2 + len(TAIL_B):]
+    return data
 
 
 def main() -> None:
@@ -54,8 +71,9 @@ def main() -> None:
     if MARKER1 not in data and MARKER2 not in data:
         print(f"[{SLUG}] [SKIP] not injected")
         return
-    new = data.replace(INSERT1 + ANCHOR1, ANCHOR1, 1)
-    new = new.replace(INSERT2 + ANCHOR2, ANCHOR2, 1)
+    # Cut from the LATER block backwards is no longer needed: both blocks sit in
+    # one contiguous span, so a single cut removes them (see _cut_blocks).
+    new = _cut_blocks(data)
     if MARKER1 in new or MARKER2 in new:
         print(f"[{SLUG}] [ERROR] markers still present after uninject")
         sys.exit(1)

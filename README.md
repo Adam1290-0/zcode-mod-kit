@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.7-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.8-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**九模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -21,6 +21,7 @@
 | edit-resend-model-fix | 对话逻辑补丁 | —（并入整合包） |
 | usage-stats-fallback | 历史用量统计修复 | —（并入整合包） |
 | zombie-cleanup | 僵尸进程清理 | —（并入整合包） |
+| voice-input | 本地语音输入（双模式接管官方麦克风） | —（并入整合包） |
 
 ---
 
@@ -81,6 +82,13 @@
 - ZCode 退出钩子自动清理孤儿 MCP 子进程（白名单制：wigolo/filesystem/memory/github/sequential-thinking/acct 六类，只杀父进程已死的 node 进程）
 - 锚点唯一校验 + `node --check` 语法校验，byte-exact uninject 还原
 
+### 🎙️ voice-input — 本地语音输入
+
+- **双模式接管** ZCode 3.18 官方的麦克风按钮：右键弹出菜单，在「官方云端 ASR」（放行，零干预）与「本地 SenseVoice」（音频不出本机）之间切换
+- 本地模式功能：每 1.5 秒增量解码的实时草稿转写、三款录音皮肤（电平条 / 输入框声波 / 麦克风声纹环）、热键 toggle、输入设备选择、空闲自动退出、随 ZCode 自动启动
+- 依赖自举：首次点击才下载 npm tarball 与 SenseVoice 模型，两者都做 sha256 校验，npm 源与 HF 源均带镜像回退；sidecar 用 ZCode 自带 Electron 运行，目标机不需要预装 Node.js
+- 生命周期绑定 ZCode：点麦克风才预热，ZCode 退出时 sidecar 跟随结束（stdin 管道断开兜底 + will-quit 主动终止双保险）
+
 ---
 
 <a name="english"></a>
@@ -123,7 +131,8 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2（3.11.2 及更早见各模块历史 README） |
+| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0（3.11.2 及更早见各模块历史 README） |
+| voice-input | 仅 3.18.0（takes over the mic button 3.18 introduced） |
 
 > ⚠️ This is a **community third-party patch suite**. It modifies ZCode's `app.asar` and `zcode.cjs`, is **not affiliated with ZCode**, and every module can break on a ZCode update. Read [DISCLAIMER.md](DISCLAIMER.md) before use. ZCode is closed-source and updates frequently — if your version is not listed, do not patch; open an issue with your version number.
 
@@ -166,11 +175,24 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 9 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 |
+| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 |
+| voice-input（新增） | 仅 3.18.0（接管官方 3.18 才有的麦克风按钮） |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.8
+
+- ✅ 适配 ZCode **3.18.0**（asar 384.8MB）：zombie-cleanup → **v1.2.1**（shutdown 第六代改名 Ios→mgs，且外层解注册符号从 `f()` 变更到 `d()`，锚点写作 `d(),n(mgs(_))`；legacy 形状匹配改为捕获并回放该符号，不再假定 `f()`）；usage-stats-fallback → **v1.1.1**（`let R=e.prepare(` 改名为 `let P=e.prepare(`，卸载从硬编码变量改为按字面 marker/tail 切割）；edit-resend-model-fix → **v7.0.0**（官方已自行修好编辑重发路径，与本模块 v2.2 设计同源，因此 v7 只补 retryTurn 三处：builder payload 门控放行、schema 放宽、重试回调带草稿所选）；pin / route-override / skin-manager / account-switcher / usage-bar / snapshot-kill 零锚点漂移
+- ➕ **新增第 10 模块 voice-input v0.3.1（语音输入）**：接管 ZCode 3.18 官方的麦克风按钮，右键呼出菜单在「官方云端 ASR」与「本地 SenseVoice」之间切换。本地模式音频不出本机，并带实时草稿转写、三款录音皮肤、热键 toggle、输入设备选择、空闲退出、autoStart。依赖（npm tgz + 模型）首次使用时自动下载并做 sha256 校验，sidecar 跑在 ZCode 自带 Electron 上，目标机不需要预装 Node.js
+- 🐛 **修复 voice-input 首次安装必然失败**：依赖校验拿 `sha256File()` 的结果去比对 npm registry 的 `dist.integrity`（那是 **sha512**），64 位对 128 位永远不等，两个镜像试完必然抛错。改为钉住每个 tarball 的 sha256，并补上 `tokens.txt` 的哈希
+- 🐛 **修复 voice-input 管理器端口错位**：manager 实际绑定 47116–47135 中第一个空闲端口，而 UI 端口是注入时固定的；多开 ZCode 或端口被占时 UI 指向错误端口。UI 改为按身份探测（token 往返 + 配置结构校验），并拒绝把占用端口的无关进程认作 manager
+- 🐛 **修 voice-input 的 SKIP 门盲区**：verify 原来只检查运行时文件「存在」，模块资产更新后安装器会跳过重部署。改为字节比对，不一致即判 FAIL
+- 🛡️ `asar_is_clean` 补扫 voice-input 的两个 marker（`zcode-voice-ui` 在 index.html、`voice-main.cjs` 在 out/main/index.js）。漏扫会让「只装 voice-input」的 asar 被误判为干净，从而用已打补丁的 asar 覆盖 kitbak 基线
+- 🧹 voice-input 清理：删除 27KB 的历史备份 `ui_voice.v2.bak.js` 与 `__pycache__`
+- 🧪 真实 3.18.0 解包树端到端验证：10 模块全注入 → node --check（zcode.cjs / main / host / 全部 renderer chunk）全过 → 全部卸载 → **index.html / out/main/index.js / zcode.cjs 三个文件字节级完全还原**（md5 与原文件一致）
+- 🧪 全套 **238 项测试全绿**（engine 22 + modules 164 + edge 52），新增 asar voice marker 1 项、voice 陈旧运行时拒收 2 项
 
 ### v1.6.7
 

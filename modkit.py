@@ -50,7 +50,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.6.7"
+KIT_VERSION = "1.6.8"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -270,7 +270,8 @@ def find_zcode_root():
 # pass; uninject byte-identical restore confirmed.
 # 3.16.3 (2026-10-23): same four targets; full roundtrip re-validated, no drift.
 # 3.17.2 (2026-11-02): same four targets; full roundtrip re-validated, no drift.
-VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4", "3.15.3", "3.16.2", "3.16.3", "3.17.2"}
+# 3.18.0 (2026-11-10): same four targets; full roundtrip re-validated, no drift.
+VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4", "3.15.3", "3.16.2", "3.16.3", "3.17.2", "3.18.0"}
 
 
 def read_asar_version(asar_path):
@@ -328,9 +329,11 @@ def version_compat_check(asar_path, cfg):
 # partial patch (any single module) must count as NOT clean, or refreshing the
 # backup would overwrite the clean baseline with a patched asar.
 ASAR_RENDERER_MARKERS = ("zcode-skin-ui", "zcode-account-switcher",
-                         "zcode-route-override-ui", "zcode-pin-ui")
+                         "zcode-route-override-ui", "zcode-pin-ui",
+                         "zcode-voice-ui")
 ASAR_HOST_MARKER = "zcode-snapshot-kill-switch"   # snapshot-kill -> out/host/index.js
-ASAR_MAIN_MARKER = "[zusage]"                     # usage-bar     -> out/main/index.js
+# usage-bar and voice-input both append a dynamic-import line to the same file.
+ASAR_MAIN_MARKERS = ("[zusage]", "voice-main.cjs")
 ASAR_CHUNK_MARKERS = ("zcode-editresend-ui",)     # edit-resend   -> out/renderer/assets/*.js chunk
 
 
@@ -382,7 +385,7 @@ def asar_is_clean(asar_path):
         if host and ASAR_HOST_MARKER in host:
             return False
         main = read_entry("out", "main", "index.js")
-        if main and ASAR_MAIN_MARKER in main:
+        if main and any(m in main for m in ASAR_MAIN_MARKERS):
             return False
         # edit-resend injects its renderer markers into a content-hashed
         # out/renderer/assets/*.js chunk (never index.html), so the index.html

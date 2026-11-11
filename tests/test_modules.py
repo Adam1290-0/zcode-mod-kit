@@ -775,6 +775,77 @@ def main():
         check("zombie-legacy3172: anchor restored",
               cjsC.read_bytes().count(b"f(),n(Ios(_))") == 1)
 
+        # ---- 11. voice-input (v0.2: renderer + main-process loader) ---------
+        # asar-only module with TWO injection points: renderer script block
+        # and the out/main/index.js dynamic-import line (usage-bar pattern).
+        work = tmp / "voice" / "unpacked"
+        cjs = make_tree(work)
+        cycle("voice", "voice-input", work, None)
+        # cycle() isolates USERPROFILE to tmp/voice/home; inspect deployment.
+        vhome = tmp / "voice" / "home"
+        vruntime = vhome / ".zcode" / "plugins" / "voice-input"
+        vsidecar = vruntime / "server.js"
+        vmanager = vruntime / "voice-main.cjs"
+        vtoken = vruntime / "auth-token"
+        check("voice: sidecar deployed to temp home", vsidecar.exists())
+        check("voice: manager deployed to temp home", vmanager.exists())
+        check("voice: token file in temp home", vtoken.exists() and
+              len(vtoken.read_text(encoding="utf-8").strip()) >= 32)
+
+        envV = dict(os.environ)
+        envV["USERPROFILE"] = str(vhome)
+        envV["HOME"] = str(vhome)
+
+        # A stale deployed runtime must be REJECTED by verify. Otherwise the
+        # mod-kit outer skip gate (which trusts verify) would never re-deploy
+        # an updated server.js/voice-main.cjs - the v1.6.5 route/pin blind spot.
+        vmanager.write_bytes(b"// stale deployed copy\n")
+        rc, out = run(module("voice-input") / "verify.py",
+                      ["--dir", str(work)], envV)
+        check("voice: verify rejects stale runtime manager", rc != 0,
+              out[-300:])
+        check("voice: stale manager named in output", "STALE" in out, out[-300:])
+
+        # re-inject once more (cycle already un-injected) to inspect baking
+        rc, out = run(module("voice-input") / "inject.py",
+                      ["--dir", str(work)], envV)
+        check("voice: re-inject exit 0", rc == 0, out[-300:])
+        vhtml = (work / "out" / "renderer" / "index.html").read_text(
+            encoding="utf-8", newline="")
+        vmain = (work / "out" / "main" / "index.js").read_bytes()
+        tok = vtoken.read_text(encoding="utf-8").strip()
+        check("voice: token baked quoted into block",
+              f'var TOKEN = "{tok}"' in vhtml, "baked form not found")
+        check("voice: sidecar port baked", "var SPORT = 47115" in vhtml)
+        check("voice: manager port baked", "var MPORT = 47116" in vhtml)
+        check("voice: no placeholder left",
+              "__ZVOICE_" not in vhtml)
+        check("voice: main import line present",
+              vmain.count(b'voice-main.cjs")') == 1)
+        check("voice: import points at temp runtime",
+              (vruntime / "voice-main.cjs").as_uri().encode() in vmain
+              or str(vruntime / "voice-main.cjs").encode() in vmain)
+        # idempotent second run must not stack a second import line
+        rc, out = run(module("voice-input") / "inject.py",
+                      ["--dir", str(work)], envV)
+        vmain2 = (work / "out" / "main" / "index.js").read_bytes()
+        check("voice: main re-inject idempotent",
+              vmain2.count(b'voice-main.cjs")') == 1, out[-200:])
+        rc, out = run(module("voice-input") / "verify.py",
+                      ["--dir", str(work)], envV)
+        check("voice: verify exit 0", rc == 0, out[-300:])
+        # final uninject leaves both files byte-identical (html vs MOCK_HTML;
+        # main index.js vs MOCK_MAIN_LF bytes)
+        rc, out = run(module("voice-input") / "uninject.py",
+                      ["--dir", str(work)], envV)
+        check("voice: final uninject exit 0", rc == 0, out[-300:])
+        check("voice: renderer restored",
+              (work / "out" / "renderer" / "index.html").read_bytes()
+              == MOCK_HTML.encode())
+        check("voice: main restored",
+              (work / "out" / "main" / "index.js").read_bytes()
+              == MOCK_MAIN_LF.encode())
+
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

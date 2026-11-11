@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""edit-resend-model-fix v6: cjs + renderer verifier for zcode-mod-kit.
+"""edit-resend-model-fix v7: cjs + renderer verifier for zcode-mod-kit.
 
-Exit 0 means v6 is fully applied on BOTH targets (ZCode 3.17.2).
+Exit 0 means v7 is fully applied on BOTH targets (ZCode 3.18.0):
+  cjs      - builder gate admits retryTurn payload, retryTurn schema widened
+  renderer - retry callback carries the live draft selection, and the edit
+             side is present upstream (sanity signal for the assumed baseline)
 """
 import argparse
 import subprocess
@@ -11,23 +14,18 @@ from pathlib import Path
 
 SLUG = "edit-resend-model-fix"
 
-RI_STALE = (b"modelSelection:n.intent.modelSelection,"
-             b"mode:n.intent.mode,planEnabled:n.intent.planEnabled,")
-RI_PATCHED = (b"/*[zcode-editresend-model-fix:v6]*/"
-               b"modelSelection:t.payload?.modelSelection??n.intent.modelSelection,"
-               b"mode:t.payload?.mode??n.intent.mode,"
-               b"planEnabled:t.payload?.planEnabled!==void 0?"
-               b"t.payload.planEnabled:n.intent.planEnabled,")
-RT_NEW = (b"retryTurn:m.object({target:lP,modelSelection:Nl.optional(),"
+GATE_OLD = b'let d=t.type==="editUserQuery"?t.payload:void 0'
+GATE_NEW = (b"/*[zcode-editresend-model-fix:v7]*/"
+            b'let d=t.type==="editUserQuery"||t.type==="retryTurn"?t.payload:void 0')
+RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Nl.optional(),"
           b"mode:Cge.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
-NR_SPREAD = (b"...(Nr.current.modelSelection?{modelSelection:Nr.current."
-             b"modelSelection,mode:Nr.current.mode,"
-             b"planEnabled:Nr.current.planEnabled}:{})")
-NEE_FINAL = (b"let l=await Ci(`editUserQuery`,{target:e,newText:n,"
-             b"workspaceMode:i,conversationQuotes:a," + NR_SPREAD)
-BI_FINAL = (b"return Ci(`retryTurn`,{target:e," + NR_SPREAD)
+NEE_UPSTREAM = (b"...o?{modelSelection:o.modelSelection,mode:o.mode,"
+                b"planEnabled:o.planEnabled}:{}")
+SEL_SPREAD = (b"...si?{modelSelection:si.modelSelection,mode:si.mode,"
+              b"planEnabled:si.planEnabled}:{}")
+BI_FINAL = b"return Ni(`retryTurn`,{target:e," + SEL_SPREAD
 
 
 def log(msg: str) -> None:
@@ -55,7 +53,7 @@ def node_check(data: bytes, label: str) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=f"{SLUG}: verify v6 state")
+    ap = argparse.ArgumentParser(description=f"{SLUG}: verify v7 state")
     ap.add_argument("--dir", default=None, help="unpacked asar root")
     ap.add_argument("--zcode-cjs", default=None,
                     help="path to resources/glm/zcode.cjs")
@@ -71,15 +69,15 @@ def main() -> None:
     if not cjs.is_file():
         fail(f"zcode.cjs not found: {cjs}")
     data = cjs.read_bytes()
-    if RI_PATCHED not in data:
-        problems.append("cjs: r_i payload-priority replay missing")
-    if RI_STALE in data:
-        problems.append("cjs: frozen replay still present")
+    if GATE_NEW not in data:
+        problems.append("cjs: retryTurn payload gate not widened")
+    if GATE_OLD in data:
+        problems.append("cjs: original editUserQuery-only gate still present")
     if RT_NEW not in data:
         problems.append("cjs: retryTurn schema not widened")
     if not problems:
         node_check(data, "cjs")
-        log("cjs verified: payload-priority + widened retryTurn schema")
+        log("cjs verified: retry payload gate + widened retryTurn schema")
 
     # ---- renderer ----
     if args.dir:
@@ -90,30 +88,29 @@ def main() -> None:
                 if js.stat().st_size < 100_000:
                     continue
                 rd = js.read_bytes()
-                if (b"zcode-editresend-ui" in rd or NR_SPREAD in rd
-                        or NEE_FINAL in rd or BI_FINAL in rd):
+                if (b"zcode-editresend-ui" in rd or SEL_SPREAD in rd
+                        or NEE_UPSTREAM in rd):
                     rcands.append(js)
         if len(rcands) != 1:
             problems.append(f"renderer: {len(rcands)} candidate chunks "
                             "(expected 1)")
         else:
             rd = rcands[0].read_bytes()
-            if NR_SPREAD not in rd:
-                problems.append("renderer: Nr.current spread missing")
-            if NEE_FINAL not in rd:
-                problems.append("renderer: nee insertion missing")
             if BI_FINAL not in rd:
-                problems.append("renderer: retry insertion missing")
-            if rd.count(b"zcode-editresend-ui") != 2:
-                problems.append("renderer: ui marker count != 2")
+                problems.append("renderer: retry selection spread missing")
+            if NEE_UPSTREAM not in rd:
+                problems.append("renderer: upstream edit fix missing "
+                                "(unexpected baseline)")
+            if rd.count(b"zcode-editresend-ui") != 1:
+                problems.append("renderer: ui marker count != 1")
             if not problems:
                 node_check(rd, "renderer")
-                log(f"renderer verified: Nr.current spread in nee/retry "
+                log(f"renderer verified: retry carries live selection "
                     f"({rcands[0].name})")
 
     if problems:
         fail("verify failed: " + "; ".join(problems))
-    log("verified: edit-resend v6 fully applied")
+    log("verified: edit-resend v7 fully applied")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""edit-resend-model-fix v6: cjs + renderer uninjector for zcode-mod-kit.
+"""edit-resend-model-fix v7: cjs + renderer uninjector for zcode-mod-kit.
 
-Reverses v6 back to the OFFICIAL 3.17.2 state, byte-exactly, on both targets.
+Reverses v7 back to the OFFICIAL 3.18.0 state, byte-exactly, on both targets.
+The edit path is untouched by v7 (fixed upstream), so only the retry-side
+patches are reverted.
 """
 import argparse
 import subprocess
@@ -11,33 +13,19 @@ from pathlib import Path
 
 SLUG = "edit-resend-model-fix"
 
-RI_STALE = (b"modelSelection:n.intent.modelSelection,"
-             b"mode:n.intent.mode,planEnabled:n.intent.planEnabled,")
-RI_PATCHED = (b"/*[zcode-editresend-model-fix:v6]*/"
-               b"modelSelection:t.payload?.modelSelection??n.intent.modelSelection,"
-               b"mode:t.payload?.mode??n.intent.mode,"
-               b"planEnabled:t.payload?.planEnabled!==void 0?"
-               b"t.payload.planEnabled:n.intent.planEnabled,")
-RT_OLD = (b"retryTurn:m.object({target:lP}),setAssistantFeedback")
-RT_NEW = (b"retryTurn:m.object({target:lP,modelSelection:Nl.optional(),"
+GATE_OLD = b'let d=t.type==="editUserQuery"?t.payload:void 0'
+GATE_NEW = (b"/*[zcode-editresend-model-fix:v7]*/"
+            b'let d=t.type==="editUserQuery"||t.type==="retryTurn"?t.payload:void 0')
+RT_OLD = b"retryTurn:m.object({target:PR}),setAssistantFeedback"
+RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Nl.optional(),"
           b"mode:Cge.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
-NR_SPREAD = (b"...(Nr.current.modelSelection?{modelSelection:Nr.current."
-             b"modelSelection,mode:Nr.current.mode,"
-             b"planEnabled:Nr.current.planEnabled}:{})")
-NEE_NEW = (b"let l=await Ci(`editUserQuery`,{target:e,newText:n,"
-           b"workspaceMode:i,conversationQuotes:a," + NR_SPREAD +
-           b",...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
-           b"c.logEpoch,void 0,s.acceleratedCard);"
-           b"/*[zcode-editresend-ui]*/")
-NEE_OLD = (b"let l=await Ci(`editUserQuery`,{target:e,newText:n,"
-           b"workspaceMode:i,conversationQuotes:a,"
-           b"...r?{attachments:[...r]}:{},...s.override},t,c.revision,"
-           b"c.logEpoch,void 0,s.acceleratedCard);")
-BI_NEW = (b"return Ci(`retryTurn`,{target:e," + NR_SPREAD +
-          b"}/*[zcode-editresend-ui]*/,t,n.revision,n.logEpoch)")
-BI_OLD = b"return Ci(`retryTurn`,{target:e},t,n.revision,n.logEpoch)"
+SEL_SPREAD = (b"...si?{modelSelection:si.modelSelection,mode:si.mode,"
+              b"planEnabled:si.planEnabled}:{}")
+BI_NEW = (b"return Ni(`retryTurn`,{target:e," + SEL_SPREAD +
+          b"},t,n.revision,n.logEpoch)}/*[zcode-editresend-ui]*/,[Ni,t])")
+BI_OLD = b"return Ni(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Ni,t])"
 
 
 def log(msg: str) -> None:
@@ -68,13 +56,13 @@ def uninject_cjs(tpath: Path) -> None:
     data = tpath.read_bytes()
     touched = False
 
-    if RI_PATCHED in data:
-        if data.count(RI_PATCHED) != 1:
-            fail("cjs r_i v6 patch matched != 1; abort", 2)
-        data = data.replace(RI_PATCHED, RI_STALE, 1)
+    if GATE_NEW in data:
+        if data.count(GATE_NEW) != 1:
+            fail("cjs builder gate patch matched != 1; abort", 2)
+        data = data.replace(GATE_NEW, GATE_OLD, 1)
         touched = True
-        log("cjs L1: r_i restored to official frozen replay")
-    elif RI_STALE in data:
+        log("cjs L1: builder gate restored to editUserQuery-only")
+    elif GATE_OLD in data:
         log("cjs L1: no patch present")
 
     if RT_NEW in data:
@@ -94,7 +82,7 @@ def renderer_candidates(root: Path):
     assets = root / "out" / "renderer" / "assets"
     if not assets.is_dir():
         fail(f"renderer assets dir not found: {assets}")
-    keys = [b"zcode-editresend-ui", NR_SPREAD, NEE_OLD, BI_OLD]
+    keys = [b"zcode-editresend-ui", SEL_SPREAD, BI_OLD]
     for js in sorted(assets.glob("*.js")):
         if js.stat().st_size < 100_000:
             continue
@@ -114,12 +102,6 @@ def uninject_renderer(root: Path) -> None:
     log(f"renderer target: {rpath.name}")
     touched = False
 
-    if NEE_NEW in data:
-        if data.count(NEE_NEW) != 1:
-            fail("renderer nee patch matched != 1; abort", 2)
-        data = data.replace(NEE_NEW, NEE_OLD, 1)
-        touched = True
-        log("renderer nee: reverted")
     if BI_NEW in data:
         if data.count(BI_NEW) != 1:
             fail("renderer retry patch matched != 1; abort", 2)
@@ -127,7 +109,7 @@ def uninject_renderer(root: Path) -> None:
         touched = True
         log("renderer retry: reverted")
 
-    if b"zcode-editresend-ui" in data or NR_SPREAD in data:
+    if b"zcode-editresend-ui" in data or SEL_SPREAD in data:
         fail("renderer: stray editresend markers remain; abort", 2)
 
     if touched:
@@ -137,7 +119,7 @@ def uninject_renderer(root: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=f"{SLUG}: un-inject v6 fix")
+    ap = argparse.ArgumentParser(description=f"{SLUG}: un-inject v7 fix")
     ap.add_argument("--dir", default=None, help="unpacked asar root")
     ap.add_argument("--zcode-cjs", default=None,
                     help="path to resources/glm/zcode.cjs")

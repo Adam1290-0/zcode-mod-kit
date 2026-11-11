@@ -1,0 +1,14 @@
+{
+  "slug": "voice-input",
+  "display_name": "语音输入",
+  "version": "0.3.1",
+  "description": "Dual-mode voice input: takes over the OFFICIAL ZCode 3.18 mic button. Right-click it for a menu that switches between official cloud ASR (pass-through) and our local SenseVoice engine (audio never leaves the machine). Local mode adds realtime draft transcription, 3 recording skins, hotkey toggle, device picker, idle-exit and autoStart. Self-bootstrapping deps (npm tgz + model, sha256), sidecar runs on ZCode own Electron, lifecycle bound to the app.",
+  "order": 100,
+  "targets": [
+    "asar"
+  ],
+  "markers": [
+    "zcode-voice-ui",
+    "zvoice-main"
+  ]
+}

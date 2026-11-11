@@ -79,7 +79,8 @@ def main():
         # each renderer module marker -> NOT clean (the incident regression:
         # pin/route-only installs used to read as clean and clobbered kitbak)
         for marker in (b"zcode-skin-ui", b"zcode-account-switcher",
-                       b"zcode-route-override-ui", b"zcode-pin-ui"):
+                       b"zcode-route-override-ui", b"zcode-pin-ui",
+                       b"zcode-voice-ui"):
             html = b"<body><script id='" + marker + b"'></script></body>"
             p = write_asar(tmp, "r.asar", {"package.json": PKG,
                                            "out/renderer/index.html": html})
@@ -100,6 +101,16 @@ def main():
             "out/renderer/index.html": CLEAN_HTML,
             "out/main/index.js": b'import("x");console.error("[zusage] load failed")'})
         check("asar_is_clean: usage-bar main marker -> not clean",
+              M.asar_is_clean(p) is False)
+
+        # voice-input appends its own dynamic-import line to the SAME file.
+        # Missing this marker made a voice-only install read as clean and
+        # refresh kitbak on top of a patched asar.
+        p = write_asar(tmp, "vmain.asar", {
+            "package.json": PKG,
+            "out/renderer/index.html": CLEAN_HTML,
+            "out/main/index.js": b'import("x/voice-main.cjs");'})
+        check("asar_is_clean: voice-input main marker -> not clean",
               M.asar_is_clean(p) is False)
 
         # edit-resend lives in a content-hashed renderer/assets chunk

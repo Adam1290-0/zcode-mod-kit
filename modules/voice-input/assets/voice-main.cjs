@@ -64,7 +64,11 @@ const DEFAULTS = {
   lineWidth: 1.4,        // stroke width in px
   glow: 8,               // shadowBlur, 0 disables the glow
   opacity: 1,            // global stroke opacity multiplier
-  tail: true,            // the travelling arc in the halo skin
+  tail: true,            // travelling sheen / counter-rotating arcs
+  offsetX: 50,           // visualiser centre, % of composer width
+  offsetY: 50,           // visualiser centre, % of composer height
+  scale: 1,              // visualiser scale multiplier
+  fusedHud: true,        // status line melts into the composer (no pill)
 };
 function readConfig() {
   let c = {};

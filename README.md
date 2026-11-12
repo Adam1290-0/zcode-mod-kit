@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.7.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.7.2-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**九模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -208,6 +208,16 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.7.2 — 修复卸载报「皮肤插件卸载失败」
+
+- 🚨 **根因：`skin-manager/uninject.py` 不接受 `--kit-version` 参数**
+  - modkit 用同一套参数调 `inject.py` / `verify.py` / `uninject.py`。skin-manager 需要 `--kit-version`（注入时写进 block、校验时比对），但 `uninject.py` 没声明这个参数，argparse 直接以 `unrecognized arguments: --kit-version` 退出
+  - 结果：卸载流程里 verify 正确判定「陈旧、需卸载」，但真正执行卸载时脚本崩掉，界面显示 `[skin-manager] FAILED`，皮肤 block 留在 `app.asar` 里
+  - 修法：`uninject.py` 接受该参数（卸载本身不需要版本号，block 靠 `<script id="zcode-skin-ui">` 定位），并在注释里写明为什么保留这个看似无用的参数
+- 🧪 **新增参数契约测试**：modkit 传给每个模块的 argv，必须能被该模块的 3 个脚本全部接受。这类错误在任何单元测试里都不会暴露（脚本本身没错，是调用契约错位），现在 10 个模块 × 3 个脚本共 30 个组合全部校验
+- 🧪 真实 asar 解包树验证：`verify` 返回 2 → `uninject` 成功 → `zcode-skin-ui` 残留 0
+- 🧪 全套 **284 项测试全绿**（engine 22 + modules 173 + edge 52 + incident 37）
 
 ### v1.7.1 — 修复两个发布阻断问题
 

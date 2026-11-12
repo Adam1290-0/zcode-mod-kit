@@ -25,6 +25,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="skin-manager directory-mode uninjector")
     ap.add_argument("--dir", required=True, help="extracted asar directory")
     ap.add_argument("--zcode-cjs", help="unused by this module (targets=asar only)")
+    # Accepted for interface symmetry only. modkit calls every skin-manager
+    # script with --kit-version (it needs it for inject/verify), and argparse
+    # aborts with "unrecognized arguments" when a script does not declare it -
+    # which surfaced as "[skin-manager] FAILED" on uninstall and left the skin
+    # block inside app.asar (2026-11-12). Removal never needs the version: the
+    # block is located by its <script id="zcode-skin-ui"> marker.
+    ap.add_argument("--kit-version", default=None, help="unused (accepted for symmetry)")
+    ap.add_argument("--install-root", default=None, help="unused (paths come from --dir)")
     args = ap.parse_args()
 
     html_path = Path(args.dir) / "out" / "renderer" / "index.html"

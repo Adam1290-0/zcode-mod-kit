@@ -23,6 +23,7 @@ Two failures shipped together and both are covered here:
    installer's gate reads 1 as "nothing to do" and skipped the uninject.
    Verification now returns 2 for stale, and these tests pin that contract.
 """
+import json
 import os
 import re
 import shutil
@@ -206,6 +207,52 @@ def test_stale_means_injected():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_script_arg_contract():
+    """Every module script must accept exactly the args modkit passes.
+
+    modkit builds one argument list and reuses it for inject / verify /
+    uninject. skin-manager's uninject.py declared no --kit-version, so argparse
+    aborted with "unrecognized arguments" before the removal ran: the installer
+    printed [skin-manager] FAILED and left the block in app.asar. Nothing
+    checked this contract, so it went unnoticed until a user hit it.
+    """
+    print("\n--- argument contract: modkit's argv must not crash any script")
+    mods = load_modules_for_contract()
+    if not mods:
+        print("  [SKIP] could not load module list")
+        return
+    for mod in mods:
+        slug = mod["slug"]
+        args = ["--dir", os.path.join(tempfile.gettempdir(), "no_such_dir_modkit")]
+        if "zcode-cjs" in mod.get("targets", []):
+            args += ["--zcode-cjs", os.path.join(tempfile.gettempdir(), "nope.cjs")]
+        if slug == "skin-manager":
+            args += ["--kit-version", "9.9.9"]
+        rejects = []
+        for script in ("inject.py", "verify.py", "uninject.py"):
+            p = MODS / slug / script
+            if not p.is_file():
+                rejects.append(f"{script} missing")
+                continue
+            rc, out = run(p, args)
+            if "unrecognized arguments" in out:
+                rejects.append(script)
+        check(f"{slug}: accepts modkit's argv", not rejects, ", ".join(rejects))
+
+
+def load_modules_for_contract():
+    """Read module.json files directly - importing modkit would run its CLI."""
+    out = []
+    for d in sorted(MODS.iterdir()):
+        mj = d / "module.json"
+        if mj.is_file():
+            try:
+                out.append(json.loads(mj.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+    return out
+
+
 def main():
     print("=" * 62)
     print("  incident regression: boot failure + skipped uninstall")
@@ -213,6 +260,7 @@ def main():
     test_schema_alias_resolution()
     test_storage_prepare_runs()
     test_stale_means_injected()
+    test_script_arg_contract()
     print("\n" + "=" * 62)
     print(f"===== {passed} passed, {failed} failed =====")
     return 1 if failed else 0

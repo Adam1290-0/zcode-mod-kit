@@ -120,7 +120,16 @@
     return fetch(SIDE + '/ping').then(function (r) { return r.ok; }).catch(function () { return false; });
   }
   function ensureService() {
-    if (ensureOk) return sidecarUp();
+    // Do NOT memoize a failure. The old code set ensureOk only on success but
+    // /ensure rejects on any transient error (manager not yet up, port still
+    // shifting, deps mid-download), and callers cached the rejected promise -
+    // so a single bad first click left local mode dead for the whole session.
+    // Every attempt gets a fresh promise; success flips the fast path.
+    if (ensureOk) return sidecarUp().then(function (up) {
+      if (up) return true;
+      ensureOk = false;          // sidecar died: re-arm /ensure next time
+      return ensureService();
+    });
     return manage('/ensure').then(function () {
       return new Promise(function (resolve, reject) {
         var tries = 0;
@@ -128,10 +137,17 @@
           tries++;
           sidecarUp().then(function (ok) {
             if (ok) { clearInterval(iv); ensureOk = true; resolve(true); }
-            else if (tries > 600) { clearInterval(iv); reject(new Error('service timeout')); }
+            else if (tries > 600) {
+              clearInterval(iv);
+              ensureOk = false;    // stay retryable
+              reject(new Error('service timeout'));
+            }
           });
         }, 1000);
       });
+    }).catch(function (err) {
+      ensureOk = false;            // stay retryable
+      throw err;
     });
   }
 

@@ -214,7 +214,8 @@ def verify(out_dir: Path) -> int:
             start = html.find(UI_MARKER)
             end = html.find("</script>", start)
             block = html[start:end]
-            if not re.search(r'var TOKEN ?= ?"[0-9a-f]{32,48}"', block):
+            tok_m = re.search(r'var TOKEN ?= ?"([0-9a-f]{32,48})"', block)
+            if not tok_m:
                 log('renderer: baked token missing (var TOKEN = "<hex>")')
                 ok = False
             for ph in (TOKEN_PLACEHOLDER, PORT_PLACEHOLDER, MPORT_PLACEHOLDER):
@@ -226,6 +227,24 @@ def verify(out_dir: Path) -> int:
                          "mode: 'official'"):
                 if feat not in block:
                     log(f"renderer: feature marker missing: {feat}")
+                    ok = False
+            # STALE check. Feature spot-checks above pass on ANY past version
+            # of this block, so an updated ui_voice.js would never re-deploy
+            # (the skip gate trusts this verifier). Normalise the one-time
+            # values back to placeholders and diff against the source asset.
+            if tok_m and ok:
+                norm = block
+                norm = norm.replace(tok_m.group(0),
+                                    'var TOKEN = ' + TOKEN_PLACEHOLDER)
+                norm = re.sub(r'(var SPORT ?= ?)\d+', r'\g<1>' + PORT_PLACEHOLDER, norm)
+                norm = re.sub(r'(var MPORT ?= ?)\d+', r'\g<1>' + MPORT_PLACEHOLDER, norm)
+                src = (Path(__file__).resolve().parent / "assets"
+                       / "ui_voice.js").read_text(encoding="utf-8", newline="")
+                src_body = src.rstrip("\n")
+                # `block` stops at "</script>", so the expected value must too.
+                want = UI_MARKER + "\n" + src_body + "\n"
+                if norm.rstrip("\n") != want.rstrip("\n"):
+                    log("renderer: UI block is STALE (differs from assets/ui_voice.js)")
                     ok = False
             if ok:
                 log("renderer: UI block OK (token/ports + official-btn takeover + paste)")

@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.8-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.6.9-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**九模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -181,6 +181,18 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.6.9
+
+- ❄️ **冬季界面**：安装器开场加入飘雪动画（备用屏幕渲染，退出后终端原样恢复；非 TTY 自动降级为一行静态问候，不会往日志里灌转义码），banner 换成冷色渐变，11–2 月自动启用。`--no-snow` 可跳过动画
+- 📋 **安装器显示完整模块清单**：10 个模块的名称、版本、一句话说明全部列出，版本号由 `modkit.py` 单一数据源提供，模块升版时 bat 无需改动
+- 🐛 **修复 voice-input 本地模式首次点击失效**：`ensureService()` 把失败的 Promise 缓存住了，一次瞬时失败（管理器还没起来、端口还在漂移、依赖正在下载）就会让本地模式整个会话都点不动。现在每次失败都会重置状态，下次点击可重试
+- 🐛 **修复 voice-input 渲染层陈旧盲区**：verify 只检查了运行时文件字节，没检查内联进 index.html 的 UI block，导致 `ui_voice.js` 更新后安装器会跳过重部署。现在把 token/端口归一化后与源资产逐字比对
+- 🐛 **修复 usage-bar / zombie-cleanup 同类盲区**：两者 verify 都只检查「文件存在」或「锚点存在」，运行时文件更新后永远不会重部署。现在都做字节比对
+- 🧹 移除仓库内的内部开发文档（`docs/superpowers/`），不再随发布分发
+- 🧪 全套 **241 项测试全绿**（engine 22 + modules 167 + edge 52），新增 voice 渲染层陈旧拒收 2 项、ensureService 可重试 1 项
+- 🧪 真实 3.18.0 端到端：10 模块注入 → 全部 verify 通过 → node --check 全过 → 全部卸载 → 4 个文件字节级还原
+- 🧪 换用户目录模拟（`USERPROFILE` 指向另一路径）：注入路径正确跟随，无硬编码残留
 
 ### v1.6.8
 

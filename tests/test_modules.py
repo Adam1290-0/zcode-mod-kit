@@ -806,6 +806,29 @@ def main():
               out[-300:])
         check("voice: stale manager named in output", "STALE" in out, out[-300:])
 
+        # Same blind spot on the renderer side: the HTML carries the whole UI
+        # inlined, so a stale block must be rejected too, not just the runtime
+        # files. Re-inject first (the cycle above already un-injected), then
+        # tamper one byte inside the block.
+        run(module("voice-input") / "inject.py", ["--dir", str(work)], envV)
+        src_html = (work / "out" / "renderer" / "index.html").read_text(
+            encoding="utf-8", newline="")
+        vmgr = vhome / ".zcode" / "plugins" / "voice-input" / "voice-main.cjs"
+        if vmgr.exists():
+            vmgr.unlink()   # make sure ONLY the renderer can cause the failure
+        (work / "out" / "renderer" / "index.html").write_text(
+            src_html.replace("function ensureService()",
+                             "function ensureServiceX()", 1),
+            encoding="utf-8", newline="")
+        rc, out = run(module("voice-input") / "verify.py",
+                      ["--dir", str(work)], envV)
+        check("voice: verify rejects stale renderer block", rc != 0, out[-300:])
+        check("voice: stale renderer named in output",
+              "renderer: UI block is STALE" in out, out[-300:])
+        (work / "out" / "renderer" / "index.html").write_text(
+            src_html, encoding="utf-8", newline="")
+        run(module("voice-input") / "uninject.py", ["--dir", str(work)], envV)
+
         # re-inject once more (cycle already un-injected) to inspect baking
         rc, out = run(module("voice-input") / "inject.py",
                       ["--dir", str(work)], envV)
@@ -820,6 +843,11 @@ def main():
         check("voice: manager port baked", "var MPORT = 47116" in vhtml)
         check("voice: no placeholder left",
               "__ZVOICE_" not in vhtml)
+        # A failed /ensure must stay retryable. The old code cached the
+        # rejected promise, so one bad first click killed local mode for the
+        # whole session; every failure path now clears ensureOk.
+        check("voice: ensureService failure re-arms (no permanent short-circuit)",
+              vhtml.count("ensureOk = false") >= 2)
         check("voice: main import line present",
               vmain.count(b'voice-main.cjs")') == 1)
         check("voice: import points at temp runtime",

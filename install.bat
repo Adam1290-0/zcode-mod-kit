@@ -2,57 +2,71 @@
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 title ZCode Mod Kit - patcher console
+mode con: cols=104 lines=48 >nul 2>&1
+chcp 65001 >nul 2>&1
 
-rem ---- python guard ----
-where python >nul 2>nul
-if errorlevel 1 (
-    echo [ERROR] python not found on PATH - install Python 3.10+ with "Add to PATH" checked.
-    echo.
+rem =====================================================================
+rem  python guard: a bundled copy wins over PATH, so a broken global
+rem  install cannot take the installer down with it
+rem =====================================================================
+if exist "%~dp0python\python.exe" (
+    set "PY=%~dp0python\python.exe"
+    goto havePy
+)
+where python >nul 2>&1
+if not errorlevel 1 (
+    set "PY=python"
+    goto havePy
+)
+where py >nul 2>&1
+if not errorlevel 1 (
+    set "PY=py -3"
+    goto havePy
+)
+echo.
+echo  [ERROR] Python 3.10+ not found.
+echo.
+echo  Get it from https://www.python.org/downloads/
+echo  and tick "Add python.exe to PATH" during setup.
+echo.
+pause
+exit /b 1
+
+:havePy
+if not exist "modkit.py" (
+    echo  [ERROR] modkit.py is missing next to this script.
     pause
     exit /b 1
 )
 
-rem ---- ANSI escape helper (pure-ASCII source) ----
+rem =====================================================================
+rem  The banner, kit version and every module version are printed by
+rem  modkit.py --splash: one source of truth, so this script never has to
+rem  be edited when a module bumps. Only a raw ANSI escape is needed here.
+rem =====================================================================
 for /f %%a in ('echo prompt $E ^| cmd') do set "ESC=%%a"
-rem ---- kit version (single source: modkit.py KIT_VERSION) ----
-for /f "tokens=2 delims== " %%v in ('findstr /b "KIT_VERSION" modkit.py') do set "KITVER=%%~v"
 
-rem ---- banner (note: ^| escapes the pipe char for cmd) ----
-echo(
-echo  %ESC%[35m  +--------------------------------------------------------------+%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[96mZ C O D E   M O D   K I T%ESC%[0m                                   %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[37mmodular patcher for the ZCode desktop client%ESC%[0m                %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[96mVersion : %KITVER%%ESC%[0m                                             %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m                                                              %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[37mAuthor : Adam1290-0%ESC%[0m                                         %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[96mGitHub : https://github.com/Adam1290-0/zcode-mod-kit%ESC%[0m        %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  ^|%ESC%[0m  %ESC%[90mLicense: MIT - educational only, see DISCLAIMER.md%ESC%[0m          %ESC%[35m^|%ESC%[0m
-echo  %ESC%[35m  +--------------------------------------------------------------+%ESC%[0m
-echo(
+rem ---- winter intro: drifting snow, then the frozen roster ----
+rem ---- (banner, version and every module version come from modkit.py, so
+rem ----  this file never has to be edited when a module bumps)
+%PY% modkit.py --splash %*
+if errorlevel 2 goto pyfail
 
-rem ---- bouncing ball intro (~2s) ----
-set "lane=                    "
-set /a p=0, d=1
-for /l %%n in (1,1,40) do (
-    call set "head=%%lane:~0,!p!%%"
-    call set "tail=%%lane:~!p!%%"
-    set "tail=!tail:~1!"
-    <nul set /p "=%ESC%[1G  %ESC%[90m[%ESC%[0m!head!%ESC%[96mO%ESC%[0m!tail!%ESC%[90m]  loading%ESC%[0m"
-    ping -n 1 -w 50 127.0.0.1 >nul
-    set /a p+=d
-    if !p! geq 19 set /a d=-1
-    if !p! leq 0 set /a d=1
-)
+echo  %ESC%[38;5;153m  Every module is optional and reversible. Nothing is written outside%ESC%[0m
+echo  %ESC%[38;5;153m  your ZCode install and %%USERPROFILE%%\.zcode\plugins\.%ESC%[0m
 echo(
-echo  %ESC%[90mstarting the patcher console...%ESC%[0m
-echo(
+%PY% modkit.py --from-splash %*
+if errorlevel 1 goto pyfail
 
-python modkit.py %*
-if errorlevel 1 (
-    echo.
-    echo  %ESC%[91m[ERROR] failed - see output above.%ESC%[0m
-)
 echo.
 pause
 endlocal
+exit /b 0
 
+:pyfail
+echo.
+echo  %ESC%[91m[ERROR] the patcher failed - see the messages above.%ESC%[0m
+echo.
+pause
+endlocal
+exit /b 1

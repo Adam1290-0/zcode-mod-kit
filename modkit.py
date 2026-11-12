@@ -36,6 +36,7 @@ RED = "\x1b[91m"
 BLUE = "\x1b[94m"
 DIM = "\x1b[2m"
 BOLD = "\x1b[1m"
+WHITE = "\x1b[97m"
 BG_CYAN = "\x1b[46m\x1b[30m"
 BG_GREEN = "\x1b[42m\x1b[30m"
 BG_RED = "\x1b[41m\x1b[30m"
@@ -50,7 +51,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.6.8"
+KIT_VERSION = "1.6.9"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -69,6 +70,7 @@ LABELS = {
     "edit-resend-model-fix": "EDITFIX edit-resend replays CURRENT model/mode",
     "usage-stats-fallback": "HISTFIX usage page backfills pre-09 message tokens",
     "zombie-cleanup": "ZOMBIE  kill orphaned MCP procs on exit",
+    "voice-input": "VOICE  local speech-to-text on the official mic button",
 }
 ORDER_HINT = {
     "route-override": "cjs chain first, pin wraps outside it",
@@ -80,6 +82,7 @@ ORDER_HINT = {
     "edit-resend-model-fix": "drops 3 stale fields in zcode.cjs SJo re-run",
     "usage-stats-fallback": "Xkr 2 insertions in zcode.cjs usage query",
     "zombie-cleanup": "shutdown handler fires powershell cleanup script",
+    "voice-input": "renderer button + main dynamic import (3.18.0 only)",
 }
 
 BANNER_LINES = [
@@ -90,6 +93,8 @@ BANNER_LINES = [
 ]
 # neon gradient across the banner: pink -> purple -> cyan -> blue
 GRADIENT = [N_PINK, N_PURPLE, N_CYAN, N_BLUE]
+WINTER_GRADIENT = ["\x1b[38;5;111m", "\x1b[38;5;117m",
+                   "\x1b[38;5;153m", "\x1b[38;5;195m"]
 
 
 def c(code, text):
@@ -98,7 +103,8 @@ def c(code, text):
 
 def gradient_banner():
     """Each banner line in its own neon shade."""
-    return "\n" + "\n".join(c(GRADIENT[i], ln) for i, ln in enumerate(BANNER_LINES))
+    pal = WINTER_GRADIENT if _winter_palette() else GRADIENT
+    return "\n" + "\n".join(c(pal[i], ln) for i, ln in enumerate(BANNER_LINES))
 
 
 def clickable(url, text):
@@ -146,6 +152,106 @@ def vt_on():
 def clear():
     sys.stdout.write("\x1b[2J\x1b[H")
     sys.stdout.flush()
+
+
+# ---------------------------------------------------------------------------
+# winter intro: snowfall + frozen module roster
+# ---------------------------------------------------------------------------
+SNOW_CHARS = [".", ".", "*", "*", "+", "o", "O", "*"]
+SNOW_SHADES = ["\x1b[38;5;153m", "\x1b[38;5;159m", "\x1b[38;5;195m",
+               "\x1b[38;5;231m"]
+
+
+def _winter_palette():
+    """Cold neon for the winter months, the usual one otherwise."""
+    import datetime
+    m = datetime.date.today().month
+    return m in (11, 12, 1, 2)
+
+
+def snowfall(seconds=2.4, rows=14, cols=68, fps=20):
+    """Animate drifting snow inside a framed box.
+
+    Runs on the alternate screen so the terminal is left exactly as we found
+    it, and degrades to a single static frame when output is not a TTY (so
+    piping the installer to a log does not emit thousands of escape codes).
+    """
+    import random
+    import time
+
+    if not sys.stdout.isatty():
+        print(c(N_CYAN, "  *  .  *   冬天快乐 / happy winter   *  .  *"))
+        return
+
+    flakes = []
+    for _ in range(max(18, cols // 3)):
+        flakes.append({
+            "x": random.randrange(cols),
+            "y": random.randrange(-rows, rows),
+            "v": random.choice((0.35, 0.5, 0.7, 0.9)),
+            "drift": random.choice((-1, 0, 0, 1)),
+            "ch": random.choice(SNOW_CHARS),
+            "shade": random.choice(SNOW_SHADES),
+        })
+
+    sys.stdout.write("\x1b[?1049h")          # alternate screen
+    sys.stdout.write("\x1b[?25l")            # hide cursor
+    try:
+        frames = int(seconds * fps)
+        for f in range(frames):
+            grid = [[" "] * cols for _ in range(rows)]
+            for s in flakes:
+                s["y"] += s["v"]
+                if random.random() < 0.18:
+                    s["x"] += s["drift"]
+                if s["y"] >= rows:
+                    s["y"] = -1
+                    s["x"] = random.randrange(cols)
+                if 0 <= int(s["y"]) < rows:
+                    grid[int(s["y"])][s["x"] % cols] = s["shade"] + s["ch"] + RESET
+            out = ["\x1b[H"]
+            out.append("\n")
+            for ln in grid:
+                out.append("   " + "".join(ln) + "\n")
+            # fading winter greeting on the last third
+            if f > frames * 0.55:
+                msg = ("*  冬 天 快 乐  /  h a p p y   w i n t e r  *")
+                enc = (msg[:max(0, (f - int(frames * 0.55)) * 2)]).center(cols)
+                out.append("   " + c(N_CYAN + BOLD, enc) + "\n")
+            sys.stdout.write("".join(out))
+            sys.stdout.flush()
+            time.sleep(1.0 / fps)
+    except (KeyboardInterrupt, OSError):
+        pass
+    finally:
+        sys.stdout.write("\x1b[?25h")
+        sys.stdout.write("\x1b[?1049l")      # back to the normal screen
+        sys.stdout.flush()
+
+
+def module_roster(mods):
+    """One line per module: version + what it does. Screen-reader friendly."""
+    lines = []
+    for m in mods:
+        slug = m["slug"]
+        ver = m.get("version", "")
+        label = LABELS.get(slug, slug)
+        name, _, desc = label.partition(" ")
+        lines.append("  " + c(N_CYAN, "%-7s" % name) +
+                     c(DIM, "v%-8s" % ver) + c(WHITE, desc.strip()))
+    return "\n".join(lines)
+
+
+def winter_banner(mods):
+    """Banner block printed once before the interactive menu."""
+    out = [gradient_banner()]
+    if _winter_palette():
+        out.append(c(N_CYAN, "  ~ winter edition  " + "*  .  *  .  *"))
+    out.append("")
+    out.append(c(MAGENTA + BOLD, "  MODULES  (%d)" % len(mods)))
+    out.append(module_roster(mods))
+    out.append("")
+    return "\n".join(out)
 
 
 def hide_cursor():
@@ -739,7 +845,8 @@ def uninstall_all(mods, paths):
 def render(mods, selection, idx, config_sel):
     clear()
     print(gradient_banner())
-    print(c(MAGENTA, "  zcode-mod-kit  ::  modular patcher console"))
+    print(c(MAGENTA, "  zcode-mod-kit  ::  modular patcher console") +
+          (c(N_CYAN, "   *  .  *  winter") if _winter_palette() else ""))
     print(c(N_CYAN, "  " + "=" * 36))
     print()
     print(c(DIM, "  UP/DOWN pick module    LEFT/RIGHT toggle    ENTER apply"))
@@ -751,7 +858,9 @@ def render(mods, selection, idx, config_sel):
         cur = " " + c(DIM, "last-run: on ") if config_sel.get(slug, True) else \
               " " + c(DIM, "last-run: off")
         status = c(BG_GREEN, "  ON  ") if on else c(BG_RED, " OFF  ")
-        row = f"  {status}  {LABELS.get(slug, slug):44s}{cur}"
+        ver = mod.get("version", "")
+        ver_txt = c(DIM, f"v{ver}") if ver else ""
+        row = f"  {status}  {LABELS.get(slug, slug):44s}{ver_txt:10s}{cur}"
         if i == idx:
             row = "\x1b[7m" + row + RESET
         print(row)
@@ -830,6 +939,25 @@ def get_key():
 def main():
     vt_on()
     mods = load_modules()
+
+    # --splash: winter intro + roster, then hand control back to install.bat.
+    # Kept ahead of the ZCode lookup so the animation still plays (and the
+    # module list is still readable) on a machine where ZCode is installed
+    # somewhere unusual - the error message then explains how to point at it.
+    args = sys.argv[1:]
+    if "--splash" in args:
+        clear()
+        if _winter_palette() and "--no-snow" not in args:
+            snowfall()
+        clear()
+        print(gradient_banner())
+        print(c(N_CYAN, "  ~ winter edition  " + "*  .  *  .  *")
+              if _winter_palette() else "")
+        print(c(MAGENTA + BOLD, "  MODULES  (%d)" % len(mods)))
+        print(module_roster(mods))
+        print()
+        return
+
     root = find_zcode_root()
     if root is None:
         print(c(RED, "[ERROR] ZCode installation not found."))
@@ -860,6 +988,11 @@ def main():
         print(c(CYAN, "[REINSTALL] re-applying saved selection"))
         sys.exit(apply_modules(mods, sel, paths, interactive=False))
 
+    # The splash already played the animation when install.bat launched us
+    # as `--splash`; don't replay it in the run that follows.
+    if _winter_palette() and "--no-snow" not in args and "--from-splash" not in args:
+        clear()
+        snowfall()
     clear()
     try:
         selection = menu(mods)

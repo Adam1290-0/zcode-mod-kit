@@ -46,6 +46,15 @@ def main() -> None:
     if not deployed.is_file():
         print(f"[{SLUG}] FAIL: cleanup script missing at {deployed}")
         sys.exit(1)
+    # Existence is not enough: an updated script would never be re-deployed,
+    # because the skip gate trusts this verifier and a stale copy still reads
+    # as "injected". Compare bytes against the module's own copy.
+    src = Path(__file__).resolve().parent / "assets" / CLEANUP_SCRIPT_NAME
+    if not src.is_file():
+        src = Path(__file__).resolve().parent / CLEANUP_SCRIPT_NAME
+    if src.is_file() and deployed.read_bytes() != src.read_bytes():
+        print(f"[{SLUG}] FAIL: cleanup script STALE (differs from {src.name})")
+        sys.exit(1)
     print(f"[{SLUG}] verified: cleanup trigger injected + script deployed")
     return 0
 

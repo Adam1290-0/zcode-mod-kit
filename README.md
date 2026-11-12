@@ -380,7 +380,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 ### v1.1.1
 
-- 🐛 **修复安装定位硬编码 H:\Zcode 的可移植性问题**：非默认安装路径的机器（如 `C:\Program Files`、`%LOCALAPPDATA%\Programs`、其他盘）之前会找不到 ZCode 甚至误导性地在补丁包目录里找 asar。现在按 环境变量 `ZCODE_ROOT` → Windows 注册表卸载项 InstallLocation → 标准安装路径 → 各盘根 ➕补丁包所在目录 的顺序自动定位；找不到时给出明确修复指引而不是静默失败
+- 🐛 **修复安装定位硬编码单一安装路径的可移植性问题**：非默认安装路径的机器（如 `C:\Program Files`、`%LOCALAPPDATA%\Programs`、其他盘）之前会找不到 ZCode 甚至误导性地在补丁包目录里找 asar。现在按 环境变量 `ZCODE_ROOT` → Windows 注册表卸载项 InstallLocation → 标准安装路径 → 各盘根 ➕补丁包所在目录 的顺序自动定位；找不到时给出明确修复指引而不是静默失败
 - 🧪 新增安装定位回归测试（6 项），全套 120 项
 - 📝 README 补充安装定位说明
 

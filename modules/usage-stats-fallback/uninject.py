@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """usage-stats-fallback: zcode-cjs uninjector for zcode-mod-kit.
 
-Restores the original Xkr function by removing both insertion blocks.
+Removes both insertion blocks, cut by their literal markers
+(/*zusage-fb-day*/, /*zusage-fb-merge*/) rather than by symbol name: the
+surrounding function and its variables are renamed on almost every ZCode
+release (Xkr -> eLr -> mqr, and R -> P in 3.18.0), the markers are not.
 """
 import argparse
 import sys

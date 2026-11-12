@@ -118,6 +118,19 @@ Updates wipe `app.asar` and `zcode.cjs`. Just quit ZCode and double-click **`rei
 
 `uninstall.bat` removes **all** modules. To remove only some, run `install.bat` and toggle them OFF (OFF = uninject for already-injected modules).
 
+**Runtime directories are not removed, by design.** They live outside `app.asar`; they hold downloaded models and plaintext auth tokens, so auto-deleting them would be destructive. Delete by hand if you are done with a module:
+
+| Directory | Contents | Size |
+|---|---|---|
+| `%USERPROFILE%\.zcode\plugins\voice-input\` | SenseVoice model + npm deps | ~249 MB |
+| `%USERPROFILE%\.zcode\plugins\pin\` | wrapper + debug log (self-rotating, 1 MB cap) | ~0.5 MB |
+| `%USERPROFILE%\.zcode\plugins\route-override\` | route rules + wrapper | ~0.6 MB |
+| `%USERPROFILE%\.zcode\plugins\usage-bar\` | overlay / zusage.py | ~0.2 MB |
+| `%USERPROFILE%\.zcode\plugins\zombie-cleanup\` | cleanup script | ~5 KB |
+| `%USERPROFILE%\.zcode\account-profiles\` | **account snapshots + plaintext `auth-token`** | ~81 KB |
+
+Note the last row: it is not under `plugins\`, and it stores unencrypted auth tokens. Delete it too if you have stopped using account-switching.
+
 ### How it works
 
 1. Backs up `app.asar` → `app.asar.kitbak` (refreshed automatically when a ZCode update is detected)
@@ -161,6 +174,19 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 ### 卸载
 
 `uninstall.bat` 卸载**全部**模块。只想卸某几个：跑 `install.bat` 把对应模块切成 OFF（OFF = 对已注入模块执行卸载）。
+
+**卸载后还需手动删除运行时目录。** 这些目录不在 `app.asar` 里，卸载器不碰它们（里面有账号凭据和已下载的模型，自动删反而危险）：
+
+| 目录 | 内容 | 体积 |
+|---|---|---|
+| `%USERPROFILE%\.zcode\plugins\voice-input\` | SenseVoice 模型 + npm 依赖 | 约 249 MB |
+| `%USERPROFILE%\.zcode\plugins\pin\` | wrapper + 调试日志（自动轮转，上限 1 MB） | 约 0.5 MB |
+| `%USERPROFILE%\.zcode\plugins\route-override\` | 路由规则 + wrapper | 约 0.6 MB |
+| `%USERPROFILE%\.zcode\plugins\usage-bar\` | overlay / zusage.py | 约 0.2 MB |
+| `%USERPROFILE%\.zcode\plugins\zombie-cleanup\` | 清理脚本 ps1 | 约 5 KB |
+| `%USERPROFILE%\.zcode\account-profiles\` | **账号快照 + `auth-token` 明文令牌** | 约 81 KB |
+
+注意最后一行：`account-profiles\` 与其它模块不同，**不在** `plugins\` 目录下，里面有未加密的认证令牌，不再用账号切换时建议一并删除。
 
 ### 原理
 

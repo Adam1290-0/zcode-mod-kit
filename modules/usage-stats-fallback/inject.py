@@ -3,25 +3,31 @@
 
 Backfills the official usage-stats page (settings -> usage) by adding a
 message-table fallback inside the queryAppUsage aggregation function in
-zcode.cjs (named eLr on 3.16.2; Xkr on <=3.14.x, h2r on 3.15.x).
+zcode.cjs (named mqr on 3.18.0; eLr on 3.16.2; Xkr on <=3.14.x, h2r on 3.15.x).
 
 Root cause: ZCode switched token-usage storage from message.data.tokens
 (JSON, pre 2026-09-01) to the model_usage table (post 2026-09-01). The
 official stats page only queries model_usage, so all pre-September data
-appears to be "zero". The CLI zusage.py already has a similar fallback
-(via _message_range_usage); this module brings it to the GUI.
+appears to be "zero".
 
-Two insertions in the aggregation function (eLr on 3.16.2):
+DO NOT remove the message fallback as "legacy": since 3.15.3 the app prunes
+model_usage to a rolling 30 days, so without this path a long-running user
+loses everything older than a month from the GUI (measured: 9.997B tokens
+of history lived only in the message table). The CLI zusage.py already has
+the same fallback (via _message_range_usage); this module brings it to the GUI.
+
+Two insertions in the aggregation function:
   1. After the daily-aggregation loop (E Map) and before the model-by-day
-     query (let R=e.prepare): if the window starts before model_usage's
-     first known record, query message.data.tokens per-day totals and
-     merge them into E.  Marker: /*zusage-fb-day*/
+     query (`let P=e.prepare(` on 3.18.0; was `let R=e.prepare(` earlier):
+     if the window starts before model_usage's first known record, query
+     message.data.tokens per-day totals and merge them into E.
+     Marker: /*zusage-fb-day*/
   2. Before the return statement: recompute totals/models from the
      augmented E/dayModels so the summary and model-ranking reflect
      both old and new data.  Marker: /*zusage-fb-merge*/
 
 Both anchors are byte-unique inside the function body (verified across
-3.14.4 - 3.16.2; the function and some var names are renamed each release
+3.14.4 - 3.18.0; the function and some var names are renamed each release
 but the anchors, the day-map variable C, and the .all(i,a,n,o) call shape
 are stable). The patch is idempotent: markers already present -> SKIP.
 All operations are raw-byte to preserve line endings.

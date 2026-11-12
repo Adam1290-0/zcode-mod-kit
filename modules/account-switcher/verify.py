@@ -45,6 +45,7 @@ def main() -> int:
     html_path = root / "out" / "renderer" / "index.html"
 
     ok = True
+    stale = False
 
     # 1. module file present and identical to the asset
     if not module_file.exists():
@@ -137,15 +138,17 @@ def main() -> int:
             if tok and TOKEN_PLACEHOLDER in asset_js:
                 expected = asset_js.replace(TOKEN_PLACEHOLDER, tok)
                 if block_js.strip() != expected.strip():
-                    log("FAIL renderer block payload differs from assets/ui_accounts.js (stale version)")
-                    ok = False
+                    log("STALE: renderer block differs from assets/ui_accounts.js")
+                    stale = True
         except OSError:
             pass  # unreadable asset/token -> shape checks above already ran
 
-    if ok:
-        log("verify OK")
-        return 0
-    return 1
+    if not ok:
+        return 1
+    if stale:
+        return 2
+    log("verify OK")
+    return 0
 
 
 if __name__ == "__main__":

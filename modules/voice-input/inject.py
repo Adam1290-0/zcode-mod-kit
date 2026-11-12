@@ -198,7 +198,12 @@ def uninject_main(out_dir: Path) -> bool:
 # ---------------------------------------------------------------- verify
 def verify(out_dir: Path) -> int:
     import re
+    # Return codes: 0 = injected + fresh, 2 = injected + STALE, 1 = not injected.
+    # The installer needs the middle state: on uninstall a stale block must still
+    # be removed, on install it must be re-deployed. Reporting it as 1 made the
+    # uninstall skip this module (2026-11-12 leftover skin block incident).
     ok = True
+    stale = False
     # renderer
     html_path = out_dir / "out" / "renderer" / "index.html"
     if not html_path.exists():
@@ -245,7 +250,7 @@ def verify(out_dir: Path) -> int:
                 want = UI_MARKER + "\n" + src_body + "\n"
                 if norm.rstrip("\n") != want.rstrip("\n"):
                     log("renderer: UI block is STALE (differs from assets/ui_voice.js)")
-                    ok = False
+                    stale = True
             if ok:
                 log("renderer: UI block OK (token/ports + official-btn takeover + paste)")
 
@@ -286,13 +291,15 @@ def verify(out_dir: Path) -> int:
             ok = False
         elif p.read_bytes() != (assets / name).read_bytes():
             log(f"runtime file is STALE (differs from assets): {p}")
-            ok = False
+            stale = True
     if (RUNTIME_DIR / "auth-token").exists():
         log(f"runtime OK: {RUNTIME_DIR}")
     else:
         log(f"auth-token missing: {RUNTIME_DIR}")
         ok = False
-    return 0 if ok else 1
+    if not ok:
+        return 1
+    return 2 if stale else 0
 
 
 # ---------------------------------------------------------------- main

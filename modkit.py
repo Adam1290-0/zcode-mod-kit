@@ -51,7 +51,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.7.0"
+KIT_VERSION = "1.7.1"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -746,18 +746,29 @@ def _apply_locked(mods, selection, paths, interactive):
         return 1
 
     # ---- run modules --------------------------------------------------------
+    # Verifier exit codes carry three states, not two:
+    #   0 = injected and the payload matches the module's assets
+    #   2 = injected but STALE (marker present, content differs from assets)
+    #   1 = not injected at all
+    # Collapsing 2 into 1 is what made `uninstall.bat` silently skip skin-manager
+    # (2026-11-12): the block was present but stale, verify returned 1, the gate
+    # read that as "not injected", and the uninject never ran - leaving a live
+    # <script id="zcode-skin-ui"> in the shipped asar after "remove all".
     results = []
     for mod in mods:
         slug = mod["slug"]
         want = selection.get(slug, True)
         args = module_cmd(mod, paths.work, paths.cjs, "verify.py")
         vrc, _ = run_py(mod["_dir"] / "verify.py", args, f"checking {slug}")
-        already = (vrc == 0)
-        if want and already:
+        present = (vrc == 0 or vrc == 2)      # injected, fresh or stale
+        stale = (vrc == 2)
+        if want and vrc == 0:
             print(c(YELLOW, f"[{slug:16s}]") + " already injected, skip")
             results.append((slug, "SKIP"))
             continue
-        if not want and not already:
+        if want and stale:
+            print(c(YELLOW, f"[{slug:16s}]") + " injected but stale, re-deploying")
+        if not want and not present:
             print(c(DIM, f"[{slug:16s}]") + " not injected, nothing to do")
             results.append((slug, "OFF"))
             continue

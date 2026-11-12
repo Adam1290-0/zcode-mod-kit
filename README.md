@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.7.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.7.1-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**九模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -208,6 +208,19 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.7.1 — 修复两个发布阻断问题
+
+- 🚨 **修复打补丁后 ZCode 无法启动**（`failedPhase: preparing_session_storage` / `errorCode: transport_closed`）
+  - 根因：`edit-resend-model-fix` v7 放宽 `retryTurn` schema 时用了 `modelSelection:Nl.optional()` 和 `mode:Cge.optional()`。这两个符号是从 bundle 别处 grep 来的，**不在该作用域内**——`Nl` 实际是无关段落里的值。ZCode 启动时会以子进程跑 `zcode.cjs app-server --stdio --prepare-storage` 准备会话存储，worker 因 `Nl is not defined` 直接崩溃，主进程收不到 `storagePrepared` 就报 `transport_closed`
+  - 修法：改用**同作用域内 `editUserQuery` schema 已验证的别名** `Wc` / `H4`，并在 inject / uninject / verify 三处同步（否则注入用新别名、卸载找旧别名，永远还原不了）
+  - `node --check` 查不出这类问题：语法合法，只是运行期标识符未定义。已补测试直接跑真实的 `--prepare-storage` 子进程，要求完成 `storagePath` → `storagePrepared` 握手
+- 🚨 **修复卸载不彻底（皮肤模块残留）**
+  - 根因：各模块 `verify.py` 把「未注入」和「已注入但内容陈旧」都返回 1。安装器的跳过门用「返回值非 0」判断「未注入」，于是在陈旧状态下**误以为无事可做，跳过了卸载**，`app.asar` 里留下活的 `<script id="zcode-skin-ui">`
+  - 修法：verify 改为**三态**——`0` = 已注入且新鲜，`2` = 已注入但陈旧，`1` = 未注入。安装器据此正确区分「跳过」「重装」「卸载」。已同步 skin-manager / voice-input / usage-bar / zombie-cleanup / account-switcher / pin / route-override
+  - 副作用修正：陈旧状态现在会正确触发**重装**（此前会被当成"已注入"直接跳过，导致模块资产更新后用户拿不到新版）
+- 🧪 新增 `tests/test_incident_2026_11_12.py`（27 项）：别名作用域校验、真实启动子进程握手、陈旧态必须被判为"已注入"
+- 🧪 全套 **274 项测试全绿**（engine 22 + modules 173 + edge 52 + incident 27）
 
 ### v1.7.0
 

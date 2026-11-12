@@ -53,8 +53,10 @@ def main() -> None:
     if not src.is_file():
         src = Path(__file__).resolve().parent / CLEANUP_SCRIPT_NAME
     if src.is_file() and deployed.read_bytes() != src.read_bytes():
-        print(f"[{SLUG}] FAIL: cleanup script STALE (differs from {src.name})")
-        sys.exit(1)
+        # 2, not 1: the module IS injected, the installed script is just old.
+        # Returning 1 made uninstall treat it as absent and skip the removal.
+        print(f"[{SLUG}] STALE: cleanup script differs from {src.name}")
+        sys.exit(2)
     print(f"[{SLUG}] verified: cleanup trigger injected + script deployed")
     return 0
 

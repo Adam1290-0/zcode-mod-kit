@@ -7,7 +7,14 @@ against a stale older version of the block).
 
 Contract (mod-kit spec 2.2):
   python verify.py --dir <extracted-asar-dir> [--zcode-cjs <path>] [--kit-version <ver>]
-  exit 0 = injected and complete; exit 1 = not injected / stale payload.
+  exit 0 = injected and payload matches assets
+  exit 2 = injected but STALE (block present, contents differ)
+  exit 1 = not injected at all
+
+The 0/1/2 split matters: the installer's skip gate uses it to tell "nothing to
+do" from "there is an old block to replace or remove". Reporting a stale block
+as 1 (the pre-2026-11-12 behaviour) made `uninstall.bat` skip this module
+entirely and leave a live skin block inside app.asar.
 """
 import argparse
 import json
@@ -49,8 +56,9 @@ def main() -> None:
                                     json.dumps(args.kit_version))
     actual = m.group(1).strip()
     if actual != expected:
-        print("[skin-manager] FAIL: block payload differs from assets/ui_skin.js (stale version)")
-        return 1
+        print("[skin-manager] STALE: block payload differs from assets/ui_skin.js "
+              "(re-deploy on install, remove on uninstall)")
+        return 2
 
     print("[skin-manager] OK: injected, payload matches assets/ui_skin.js")
     return 0

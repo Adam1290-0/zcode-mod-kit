@@ -42,8 +42,16 @@ GATE_NEW = (V7_TAG +
             b'let d=t.type==="editUserQuery"||t.type==="retryTurn"?t.payload:void 0')
 
 RT_OLD = b"retryTurn:m.object({target:PR}),setAssistantFeedback"
-RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Nl.optional(),"
-          b"mode:Cge.optional(),planEnabled:m.boolean().optional()}),"
+# Schema aliases MUST come from the sibling editUserQuery schema in the same
+# scope, not from anywhere else in the file: minified names are reused across
+# unrelated scopes, and `Nl`/`Cge` (taken from a grep hit elsewhere in the
+# bundle) resolve to other values - `Nl` is a number-or-variable in an
+# unrelated TS-compiler section, so `Nl.optional()` crashed the storage
+# prepare worker with "Nl is not defined" and ZCode failed to boot with
+# transport_closed (2026-11-12). editUserQuery (verified on 3.18.0) uses
+# modelSelection:Wc / mode:H4 / planEnabled:m.boolean().
+RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Wc.optional(),"
+          b"mode:H4.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
 # --------------------------- renderer anchors (3.18.0) --------------------

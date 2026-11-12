@@ -1,7 +1,7 @@
 {
   "slug": "edit-resend-model-fix",
   "display_name": "编辑重发回放修正",
-  "version": "7.0.0",
+  "version": "7.0.1",
   "description": "修重试(retryTurn)后不走当前所选模型（ZCode 3.18.0）。3.18.0 官方已修好编辑重发（payload 优先 + 读草稿 ref），本模块不再动编辑路径；仅剩重试三处：cjs 构建器 payload 门控放行 retryTurn + cjs retryTurn schema 放宽 + renderer 重试回调携带实时草稿所选（复用官方 si memo）。适配 3.14.3 至 3.18.0。",
   "order": 65,
   "targets": [

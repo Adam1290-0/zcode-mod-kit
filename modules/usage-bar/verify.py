@@ -32,6 +32,7 @@ def main() -> int:
     # and the skip gate would never re-deploy an updated overlay.
     assets = Path(__file__).resolve().parent / "assets"
     ok = True
+    stale = False
     for name in RUNTIME_FILES:
         p = RUNTIME_DIR / name
         if not p.is_file():
@@ -40,11 +41,14 @@ def main() -> int:
             continue
         src = assets / name
         if src.is_file() and p.read_bytes() != src.read_bytes():
-            print(f"[{SLUG}] FAIL: runtime file STALE (differs from assets): {p}")
-            ok = False
-    if ok:
-        print(f"[{SLUG}] injected (runtime OK)")
-    return 0 if ok else 1
+            print(f"[{SLUG}] STALE: runtime file differs from assets: {p}")
+            stale = True
+    if not ok:
+        return 1
+    if stale:
+        return 2
+    print(f"[{SLUG}] injected (runtime OK)")
+    return 0
 
 
 if __name__ == "__main__":

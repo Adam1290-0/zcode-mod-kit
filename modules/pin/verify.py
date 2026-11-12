@@ -65,8 +65,13 @@ def main() -> int:
             missing.append("runtime-core-stale")
 
     if missing:
-        print("[pin] verify FAIL: " + ", ".join(missing))
-        return 1
+        # Any "-stale" entry means the injection is present but outdated:
+        # exit 2 so the installer re-deploys on install and still removes it
+        # on uninstall. Only genuinely absent pieces are exit 1.
+        stale_only = all(m.endswith("-stale") for m in missing)
+        print("[pin] verify " + ("STALE" if stale_only else "FAIL") + ": "
+              + ", ".join(missing))
+        return 2 if stale_only else 1
     print("[pin] verify OK: fully injected")
     return 0
 

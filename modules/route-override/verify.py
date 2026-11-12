@@ -51,8 +51,12 @@ def main() -> int:
     rc = verify(out_dir, Path(args.zcode_cjs) if args.zcode_cjs else None)
     fresh = runtime_is_current()
     if rc == 0 and not fresh:
-        print("[route-override] verify: FAIL (runtime wrapper stale)")
-        return 1
+        # Injected but the deployed wrapper is outdated: exit 2, never 1.
+        # 1 means "absent", and the installer's skip gate uses that to decide
+        # whether an uninstall has anything to do - reporting staleness as 1
+        # would leave the module installed after "remove all".
+        print("[route-override] verify: STALE (runtime wrapper outdated)")
+        return 2
     return rc
 
 

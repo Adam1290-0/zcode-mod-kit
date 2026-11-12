@@ -17,8 +17,8 @@ SLUG = "edit-resend-model-fix"
 GATE_OLD = b'let d=t.type==="editUserQuery"?t.payload:void 0'
 GATE_NEW = (b"/*[zcode-editresend-model-fix:v7]*/"
             b'let d=t.type==="editUserQuery"||t.type==="retryTurn"?t.payload:void 0')
-RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Nl.optional(),"
-          b"mode:Cge.optional(),planEnabled:m.boolean().optional()}),"
+RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Wc.optional(),"
+          b"mode:H4.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
 
 NEE_UPSTREAM = (b"...o?{modelSelection:o.modelSelection,mode:o.mode,"

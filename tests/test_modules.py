@@ -262,8 +262,10 @@ def main():
             hp.write_text(stale, encoding="utf-8", newline="")
             rcv, outv = run(module("account-switcher") / "verify.py",
                             ["--dir", str(work)], env_kv)
-            check("acct-ui: verify FAILS on stale renderer payload",
-                  rcv != 0 and "stale version" in outv, f"rc={rcv} {outv[-200:]}")
+            check("acct-ui: stale renderer payload -> exit 2 (injected, outdated)",
+                  rcv == 2 and "STALE" in outv, f"rc={rcv} {outv[-200:]}")
+            check("acct-ui: stale message is not a FAIL",
+                  "FAIL" not in outv, outv[-200:])
             rc, out = run(module("account-switcher") / "inject.py",
                           ["--dir", str(work)], env_kv)
             check("acct-ui: re-inject exit 0", rc == 0, out[-300:])

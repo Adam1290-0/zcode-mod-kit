@@ -33,14 +33,176 @@
   var AUDIO_CFG = { channelCount: 1, echoCancellation: true, noiseSuppression: true };
 
   // ---- state ----
-  var cfg = { mode: 'official', autoStart: false, idleMin: 10, hotkey: 'Ctrl+Shift+Space', skin: 'default', device: '' };
+  var cfg = { mode: 'official', autoStart: false, idleMin: 10, hotkey: 'Ctrl+Shift+Space', skin: 'default', device: '',
+              // look: follow the skin-manager theme when present, else use
+              // these two. `accent` drives the primary stroke, `accent2` the
+              // secondary/gradient end. null = use the built-in pair.
+              followSkin: true, accent: null, accent2: null,
+              lineWidth: 1.4, glow: 8, opacity: 1, tail: true };
   var audioCtx = null, stream = null, proc = null, analyser = null, freq = null;
   var chunks = null, recording = false, busy = false, ctxRate = 48000;
   var recT0 = 0, recTimer = 0, realtimeTimer = 0, rafId = 0;
   var menu = null, canvas = null, cctx = null;
   var lastDraftText = '';
+  var lastFreq = null;      // last spectrum frame, so look edits can repaint
   var ensureOk = false;
   var officialBtn = null;   // cached node we took over
+  var skinObserver = null;  // watches the skin-manager's theme vars
+
+  // ---- palette ----------------------------------------------------------
+  // Colours are resolved at draw time, never baked, so switching the
+  // skin-manager theme (or editing ours) takes effect on the next frame.
+  var FALLBACK_A = '#22d3ee';   // the cyan this module always used
+  var FALLBACK_B = '#8b5cf6';   // the violet this module always used
+
+  function hexToRgb(hex) {
+    if (!hex) return null;
+    var h = String(hex).trim();
+    var m = h.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!m) return null;
+    var v = m[1];
+    if (v.length === 3) v = v[0] + v[0] + v[1] + v[1] + v[2] + v[2];
+    return [parseInt(v.slice(0, 2), 16), parseInt(v.slice(2, 4), 16), parseInt(v.slice(4, 6), 16)];
+  }
+  function rgba(c, a) {
+    return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
+  }
+  function rgbToHex(c) {
+    return '#' + c.map(function (n) {
+      var s = Math.max(0, Math.min(255, Math.round(n))).toString(16);
+      return s.length === 1 ? '0' + s : s;
+    }).join('');
+  }
+  // Blend two colours; t=0 -> a, t=1 -> b.
+  function mix(a, b, t) {
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  }
+  // Normalise any CSS colour the theme might use (#rgb, #rrggbb, rgb(), rgba())
+  // into [r,g,b]. Returns null when it cannot be understood.
+  function parseColor(v) {
+    if (!v) return null;
+    var hex = hexToRgb(v);
+    if (hex) return hex;
+    var m = String(v).match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (m) return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+    return null;
+  }
+
+  // The skin-manager publishes its accent as CSS custom properties on <html>
+  // (and a few theme classes). Reading computed style means we follow it
+  // automatically, including theme switches, without touching its code.
+  // The skin-manager publishes its accent as CSS custom properties on <html>,
+  // so reading computed style follows theme switches for free.
+  //
+  // Guard: --color-primary existing does NOT mean the skin module is
+  // installed - ZCode defines it itself, and on some themes that value is a
+  // dark surface colour that would make the waveform invisible. So theme
+  // colours are only consulted when the skin module is actually present.
+  // A voice-only install therefore always gets this module's own colours.
+  var skinSeen = null;   // cached: null = not probed yet
+  function themeAccent() {
+    if (!cfg.followSkin) return null;
+    if (skinSeen === null) skinSeen = skinModulePresent();
+    if (!skinSeen) return null;
+    try {
+      var cs = getComputedStyle(document.documentElement);
+      var keys = ['--color-accent', '--color-primary', '--color-brand'];
+      for (var i = 0; i < keys.length; i++) {
+        var c = parseColor(cs.getPropertyValue(keys[i]));
+        if (c) return c;
+      }
+      var body = getComputedStyle(document.body);
+      for (var j = 0; j < keys.length; j++) {
+        var d = parseColor(body.getPropertyValue(keys[j]));
+        if (d) return d;
+      }
+    } catch (e) { /* theme vars are optional */ }
+    return null;
+  }
+
+  // Resolved pair for the current frame: [primary, secondary].
+  function palette() {
+    var a = parseColor(cfg.accent);
+    if (!a && cfg.followSkin) a = themeAccent();
+    if (!a) a = hexToRgb(FALLBACK_A);
+    var b = parseColor(cfg.accent2);
+    if (!b && cfg.followSkin) {
+      // derive a companion hue by rotating the theme accent, so a custom
+      // theme colour still yields a two-tone gradient instead of one flat hue
+      var h = rgbToHsl(a);
+      b = hslToRgb((h[0] + 0.13) % 1, Math.min(1, h[1] * 1.05), Math.min(0.78, h[2] + 0.08));
+    }
+    if (!b) b = hexToRgb(FALLBACK_B);
+    return [a, b];
+  }
+
+  function rgbToHsl(c) {
+    var r = c[0] / 255, g = c[1] / 255, b = c[2] / 255;
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    var h = 0, s = 0, l = (mx + mn) / 2, d = mx - mn;
+    if (d) {
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+      else if (mx === g) h = ((b - r) / d + 2) / 6;
+      else h = ((r - g) / d + 4) / 6;
+    }
+    return [h, s, l];
+  }
+  function hslToRgb(h, s, l) {
+    function f(p, q, t) {
+      if (t < 0) t += 1; if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    }
+    if (!s) { var v = l * 255; return [v, v, v]; }
+    var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    var p = 2 * l - q;
+    return [f(p, q, h + 1 / 3) * 255, f(p, q, h) * 255, f(p, q, h - 1 / 3) * 255];
+  }
+
+  // Stroke settings, clamped so a bad value cannot blank the animation.
+  function look() {
+    var w = parseFloat(cfg.lineWidth);
+    var g = parseFloat(cfg.glow);
+    var o = parseFloat(cfg.opacity);
+    return {
+      w: isFinite(w) ? Math.max(0.5, Math.min(6, w)) : 1.4,
+      g: isFinite(g) ? Math.max(0, Math.min(30, g)) : 8,
+      o: isFinite(o) ? Math.max(0.15, Math.min(1, o)) : 1,
+      tail: cfg.tail !== false,
+    };
+  }
+
+  // Redraw immediately after a look change, without waiting for the next frame.
+  function repaint() {
+    var pal = palette();
+    var lf = el('zvoice-lvl-fill'), pf = el('zvoice-prog-fill');
+    if (lf) lf.style.background = rgbToHex(pal[0]);
+    if (pf) pf.style.background = rgbToHex(pal[1]);
+    if (cfg.skin === 'halo' && cctx) drawHalo(lastFreq || new Uint8Array(64));
+  }
+
+  // Follow the skin-manager live: it rewrites the accent CSS variables when
+  // the user changes theme, and this keeps the waveform in step without any
+  // reload. Only the attribute/style of <html>/<body> is watched, so the
+  // cost is negligible.
+  function watchTheme() {
+    if (skinObserver || typeof MutationObserver !== 'function') return;
+    skinObserver = new MutationObserver(function () {
+      // The skin module may finish mounting after us: drop the cached probe so
+      // themeAccent() looks again, then repaint if we are in follow mode.
+      if (skinSeen === false) skinSeen = null;
+      if (cfg.followSkin && !parseColor(cfg.accent)) repaint();
+    });
+    try {
+      skinObserver.observe(document.documentElement,
+        { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] });
+      skinObserver.observe(document.body,
+        { attributes: true, attributeFilter: ['style', 'class'] });
+    } catch (e) { skinObserver = null; }
+  }
 
   // ---- helpers ----
   function el(id) { return document.getElementById(id); }
@@ -174,11 +336,14 @@
         + 'backdrop-filter:blur(6px);max-width:70vw;');
       bar.appendChild(mk('span', { id: 'zvoice-dot' }, 'width:8px;height:8px;border-radius:50%;background:#e44;flex:0 0 auto;'));
       bar.appendChild(mk('span', { id: 'zvoice-bar-text' }, 'flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'));
+      var pal = palette();
       var lvl = mk('div', { id: 'zvoice-lvl' }, 'width:80px;height:4px;border-radius:2px;background:rgba(255,255,255,.18);overflow:hidden;flex:0 0 auto;');
-      lvl.appendChild(mk('div', { id: 'zvoice-lvl-fill' }, 'height:100%;width:0%;background:#4ade80;transition:width .08s linear;'));
+      lvl.appendChild(mk('div', { id: 'zvoice-lvl-fill' }, 'height:100%;width:0%;background:'
+        + rgbToHex(pal[0]) + ';transition:width .08s linear;'));
       bar.appendChild(lvl);
       var prog = mk('div', { id: 'zvoice-prog' }, 'display:none;width:120px;height:4px;border-radius:2px;background:rgba(255,255,255,.18);overflow:hidden;flex:0 0 auto;');
-      prog.appendChild(mk('div', { id: 'zvoice-prog-fill' }, 'height:100%;width:0%;background:#22d3ee;transition:width .2s linear;'));
+      prog.appendChild(mk('div', { id: 'zvoice-prog-fill' }, 'height:100%;width:0%;background:'
+        + rgbToHex(pal[1]) + ';transition:width .2s linear;'));
       bar.appendChild(prog);
       document.body.appendChild(bar);
       var st = mk('style', { id: 'zvoice-style' });
@@ -472,30 +637,36 @@
     if (!cctx) return;
     var w = canvas.clientWidth, h = canvas.clientHeight;
     var bars = 64;
+    var pal = palette(), lk = look();
     cctx.clearRect(0, 0, w, h);
     var bw = w / bars;
     for (var i = 0; i < bars; i++) {
       var v = data[Math.floor(i * data.length / bars)] / 255;
       var bh = Math.max(1.5, v * h * 0.75);
       var g = cctx.createLinearGradient(0, h, 0, h - bh);
-      g.addColorStop(0, 'rgba(34,211,238,0.42)');
-      g.addColorStop(1, 'rgba(139,92,246,0.16)');
+      g.addColorStop(0, rgba(pal[0], 0.42 * lk.o));
+      g.addColorStop(1, rgba(pal[1], 0.16 * lk.o));
       cctx.fillStyle = g;
       var x = i * bw + bw * 0.18;
       cctx.fillRect(x, h - bh, bw * 0.64, bh);
-      cctx.fillStyle = 'rgba(165,243,252,0.5)';
-      cctx.fillRect(x, h - bh, bw * 0.64, 1.2);
+      // crest: a brighter line on top of each bar
+      if (lk.w > 0.5) {
+        cctx.fillStyle = rgba(mix(pal[0], [255, 255, 255], 0.55), 0.5 * lk.o);
+        cctx.fillRect(x, h - bh, bw * 0.64, lk.w);
+      }
     }
   }
   function drawHalo(data, t) {
     if (!cctx) return;
     var b = findOfficialBtn();
     if (!b) return;
+    lastFreq = data;
     var cr = b.getBoundingClientRect();
     var pr = canvas.getBoundingClientRect();
     var cx = cr.left - pr.left + cr.width / 2;
     var cy = cr.top - pr.top + cr.height / 2;
     var w = canvas.clientWidth, h = canvas.clientHeight;
+    var pal = palette(), lk = look();
     cctx.clearRect(0, 0, w, h);
     var base = 26;
     cctx.beginPath();
@@ -507,23 +678,28 @@
       if (a === 0) cctx.moveTo(x, y); else cctx.lineTo(x, y);
     }
     cctx.closePath();
-    cctx.strokeStyle = 'rgba(34,211,238,0.75)';
-    cctx.lineWidth = 1.4;
-    cctx.shadowColor = 'rgba(34,211,238,0.55)';
-    cctx.shadowBlur = 8;
+    cctx.strokeStyle = rgba(pal[0], 0.75 * lk.o);
+    cctx.lineWidth = lk.w;
+    if (lk.g > 0) {
+      cctx.shadowColor = rgba(pal[0], 0.55 * lk.o);
+      cctx.shadowBlur = lk.g;
+    }
     cctx.stroke();
     cctx.shadowBlur = 0;
-    cctx.beginPath();
-    var r2 = base + 22;
-    cctx.arc(cx, cy, r2, t * 1.4, t * 1.4 + Math.PI * 0.7);
-    cctx.strokeStyle = 'rgba(139,92,246,0.55)';
-    cctx.lineWidth = 1.2;
-    cctx.stroke();
-    cctx.beginPath();
-    cctx.arc(cx, cy, r2 + 6, 0, Math.PI * 2);
-    cctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    cctx.lineWidth = 1;
-    cctx.stroke();
+    // travelling arc in the companion colour
+    if (lk.tail) {
+      cctx.beginPath();
+      var r2 = base + 22;
+      cctx.arc(cx, cy, r2, t * 1.4, t * 1.4 + Math.PI * 0.7);
+      cctx.strokeStyle = rgba(pal[1], 0.55 * lk.o);
+      cctx.lineWidth = lk.w * 0.85;
+      cctx.stroke();
+      cctx.beginPath();
+      cctx.arc(cx, cy, r2 + 6, 0, Math.PI * 2);
+      cctx.strokeStyle = rgba(mix(pal[1], [255, 255, 255], 0.4), 0.08 * lk.o);
+      cctx.lineWidth = 1;
+      cctx.stroke();
+    }
   }
 
   // ---- settings menu ----
@@ -604,6 +780,76 @@
       localOnly.appendChild(rowSelect('空闲自动退出', [[5, '5 分钟'], [10, '10 分钟'], [30, '30 分钟']]
         .map(function (x) { return '<option value="' + x[0] + '">' + x[1] + '</option>'; }).join(''),
         String(cfg.idleMin), null, function (v) { saveConfig({ idleMin: parseInt(v, 10) }).then(function () { notify('空闲退出已更新'); }); }));
+
+      // ---- appearance: colours + strokes, self-contained ----
+      // Works with or without the skin-manager module. When it is absent the
+      // "follow theme" row is not rendered at all, so nobody is offered a
+      // switch that cannot do anything; the two pickers stay, which is all
+      // this module needs on its own.
+      var hasSkin = skinModulePresent();
+      var pal = palette();
+      var lookRow = mk('div', null, 'padding:4px 8px 6px;');
+      var lookLab = mk('div', null, 'color:#9aa;margin-bottom:4px;display:flex;'
+        + 'justify-content:space-between;align-items:center;');
+      var lookTxt = mk('span'); lookTxt.textContent = '外观';
+      lookLab.appendChild(lookTxt);
+      var hintTxt = mk('span', null, 'font-size:10px;color:#556;');
+      hintTxt.textContent = hasSkin ? '已接入皮肤模块' : '独立配色';
+      lookLab.appendChild(hintTxt);
+      lookRow.appendChild(lookLab);
+
+      if (hasSkin) {
+        lookRow.appendChild(rowToggle('跟随皮肤主题色', cfg.followSkin, function (on) {
+          saveConfig({ followSkin: on }).then(function () {
+            repaint();
+            notify(on ? '已跟随皮肤主题色' : '已改为自定义配色');
+            closeMenu(); openMenu();
+          });
+        }));
+      }
+
+      // Follow-theme mode (or no explicit colour yet) shows the resolved value
+      // so the picker never lies about what is on screen.
+      var customA = parseColor(cfg.accent);
+      var shownA = customA ? rgbToHex(customA) : rgbToHex(pal[0]);
+      var customB = parseColor(cfg.accent2);
+      var shownB = customB ? rgbToHex(customB) : rgbToHex(pal[1]);
+
+      lookRow.appendChild(rowColor('主色', shownA, function (v) {
+        saveConfig({ accent: v }).then(function () { repaint(); });
+      }, parseColor(cfg.accent) ? function () {
+        saveConfig({ accent: null }).then(function () { repaint(); notify('主色已恢复为跟随'); closeMenu(); openMenu(); });
+      } : null));
+
+      lookRow.appendChild(rowColor('辅色', shownB, function (v) {
+        saveConfig({ accent2: v }).then(function () { repaint(); });
+      }, parseColor(cfg.accent2) ? function () {
+        saveConfig({ accent2: null }).then(function () { repaint(); notify('辅色已恢复为跟随'); closeMenu(); openMenu(); });
+      } : null));
+
+      lookRow.appendChild(rowRange('线宽', parseFloat(cfg.lineWidth) || 1.4, 0.5, 6, 0.1,
+        function (v) { cfg.lineWidth = v; saveConfig({ lineWidth: v }); repaint(); },
+        function (v) { return v.toFixed(1) + 'px'; }));
+
+      lookRow.appendChild(rowRange('辉光', parseFloat(cfg.glow) || 0, 0, 30, 1,
+        function (v) { cfg.glow = v; saveConfig({ glow: v }); repaint(); },
+        function (v) { return v + (v > 0 ? '' : '（关）'); }));
+
+      lookRow.appendChild(rowRange('不透明度', parseFloat(cfg.opacity) || 1, 0.15, 1, 0.05,
+        function (v) { cfg.opacity = v; saveConfig({ opacity: v }); repaint(); },
+        function (v) { return Math.round(v * 100) + '%'; }));
+
+      lookRow.appendChild(rowToggle('流动弧线', cfg.tail !== false, function (on) {
+        saveConfig({ tail: on }).then(function () { repaint(); });
+      }));
+
+      if (!hasSkin) {
+        var noSkinHint = mk('div', null, 'color:#556;font-size:10px;line-height:1.4;padding:2px 0 0;');
+        noSkinHint.textContent = '未检测到皮肤模块：这里的两色即为最终配色。';
+        lookRow.appendChild(noSkinHint);
+      }
+      menu.appendChild(lookRow);
+      menu.appendChild(mk('div', null, 'height:1px;background:rgba(255,255,255,.08);margin:6px 0;'));
       menu.appendChild(localOnly);
 
       menu.appendChild(mk('div', null, 'height:1px;background:rgba(255,255,255,.08);margin:6px 0;'));
@@ -634,6 +880,7 @@
       document.body.appendChild(menu);
       document.addEventListener('mousedown', onDocDown, true);
       document.addEventListener('keydown', onMenuEsc, true);
+      repaint();          // pick up the theme colours the moment the menu opens
     });
   }
 
@@ -676,6 +923,70 @@
     });
   }
 
+  // Is the skin-manager module actually installed? It is a separate, optional
+  // module: someone may install voice-input alone (or remove skin-manager
+  // later). Detect it by its own signature rather than by the presence of a
+  // CSS variable, because ZCode itself also defines --color-primary; mistaking
+  // the app's own accent for a themed skin would show the user a toggle that
+  // does nothing.
+  function skinModulePresent() {
+    try {
+      if (document.getElementById('zcode-skin-ui')) return true;
+      if (document.querySelector('[data-zkit-skin]')) return true;
+      // its settings button / panel carries this id in the skin module
+      if (document.getElementById('zkit-skin-btn')) return true;
+      var st = localStorage.getItem('zkit_skin') || localStorage.getItem('zkit-skin-config');
+      if (st) {
+        var o = JSON.parse(st);
+        if (o && (o.accentColor || o.preset || o.colors)) return true;
+      }
+    } catch (e) { /* treat as absent */ }
+    return false;
+  }
+
+  // A colour picker row: native input[type=color] plus a reset-to-theme link.
+  function rowColor(label, value, onPick, onReset) {
+    var row = mk('div', null, 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 8px;');
+    var lab = mk('span', null, 'flex:0 0 auto;'); lab.textContent = label;
+    var right = mk('div', null, 'display:flex;align-items:center;gap:6px;');
+    var inp = mk('input', { type: 'color' },
+      'width:32px;height:20px;padding:0;border:1px solid rgba(255,255,255,.18);'
+      + 'border-radius:4px;background:transparent;cursor:pointer;');
+    inp.value = value || '#22d3ee';
+    inp.addEventListener('input', function () { onPick(inp.value); });
+    right.appendChild(inp);
+    if (onReset) {
+      var rst = mk('button', { type: 'button' },
+        'padding:2px 6px;border-radius:4px;border:1px solid rgba(255,255,255,.12);'
+        + 'background:transparent;color:#9aa;cursor:pointer;font-size:10px;');
+      rst.textContent = '跟随';
+      rst.addEventListener('click', function () { onReset(); });
+      right.appendChild(rst);
+    }
+    row.appendChild(lab); row.appendChild(right);
+    return row;
+  }
+
+  // A slider row for the numeric look knobs.
+  function rowRange(label, value, min, max, step, onInput, fmt) {
+    var row = mk('div', null, 'padding:4px 8px;');
+    var head = mk('div', null, 'display:flex;justify-content:space-between;color:#9aa;margin-bottom:2px;');
+    var lab = mk('span'); lab.textContent = label;
+    var val = mk('span', null, 'color:#ddd;font-variant-numeric:tabular-nums;');
+    val.textContent = fmt ? fmt(value) : String(value);
+    head.appendChild(lab); head.appendChild(val);
+    var inp = mk('input', { type: 'range' },
+      'width:100%;accent-color:#22d3ee;cursor:pointer;height:14px;');
+    inp.min = min; inp.max = max; inp.step = step; inp.value = value;
+    inp.addEventListener('input', function () {
+      var v = parseFloat(inp.value);
+      val.textContent = fmt ? fmt(v) : String(v);
+      onInput(v);
+    });
+    row.appendChild(head); row.appendChild(inp);
+    return row;
+  }
+
   function notify(text) {
     showBar('done', text);
     setTimeout(hideBar, 2500);
@@ -698,7 +1009,11 @@
   }
 
   // ---- boot ----
-  loadConfig().then(function () { watchDownloads(); });
+  loadConfig().then(function () {
+    watchDownloads();
+    watchTheme();       // start following the skin module as soon as it exists
+    repaint();
+  });
   var tries = 0;
   function bootTick() {
     var b = findOfficialBtn();

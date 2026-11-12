@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.6.9-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.7.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**九模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -86,6 +86,7 @@
 
 - **双模式接管** ZCode 3.18 官方的麦克风按钮：右键弹出菜单，在「官方云端 ASR」（放行，零干预）与「本地 SenseVoice」（音频不出本机）之间切换
 - 本地模式功能：每 1.5 秒增量解码的实时草稿转写、三款录音皮肤（电平条 / 输入框声波 / 麦克风声纹环）、热键 toggle、输入设备选择、空闲自动退出、随 ZCode 自动启动
+- 外观可自定义：主色/辅色取色器、线宽、辉光、不透明度、流动弧线；装了皮肤模块时可「跟随皮肤主题色」并实时联动，没装则用模块自带的青/紫配色（不会误用 ZCode 自己的主题变量）
 - 依赖自举：首次点击才下载 npm tarball 与 SenseVoice 模型，两者都做 sha256 校验，npm 源与 HF 源均带镜像回退；sidecar 用 ZCode 自带 Electron 运行，目标机不需要预装 Node.js
 - 生命周期绑定 ZCode：点麦克风才预热，ZCode 退出时 sidecar 跟随结束（stdin 管道断开兜底 + will-quit 主动终止双保险）
 
@@ -207,6 +208,13 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.7.0
+
+- 🎨 **voice-input 外观自定义（v0.4.0）**：右键菜单新增「外观」区——主色/辅色两个取色器、线宽（0.5–6px）、辉光（0–30，可关）、不透明度（15%–100%）、流动弧线开关。改动实时生效并持久化
+- 🔗 **与 skin-manager 联动**：检测到皮肤模块时，可一键「跟随皮肤主题色」，语音波形自动同步皮肤主色调；皮肤切换主题时波形实时跟着变（MutationObserver 监听 CSS 变量，无需刷新）
+- 🛡️ **只装语音插件也不会出问题**：`--color-primary` 这类变量 ZCode 自己也定义，某些主题下是深色底，直接读会让波形隐形。现在主题色只在**检测到皮肤模块存在**时才读取，否则一律用语音模块自带的青/紫配色。没装皮肤模块时不显示「跟随皮肤」开关（避免给出无效选项），取色器仍完整可用
+- 🧪 241 项测试全绿 + 真实 3.18.0 端到端（注入 → 注入后 UI 块 45KB 语法校验 → 卸载 → 字节级还原）
 
 ### v1.6.9
 

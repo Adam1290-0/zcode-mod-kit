@@ -848,6 +848,29 @@ def main():
         # whole session; every failure path now clears ensureOk.
         check("voice: ensureService failure re-arms (no permanent short-circuit)",
               vhtml.count("ensureOk = false") >= 2)
+        # The appearance layer must work with no skin module installed.
+        # --color-primary exists in ZCode itself, so a naive "read the theme
+        # var" would inherit the app's dark surface colour and make the
+        # waveform invisible on a voice-only install.
+        check("voice: theme colours gated on skin module presence",
+              "skinModulePresent" in vhtml and "if (!skinSeen) return null" in vhtml)
+        check("voice: built-in fallback colours kept",
+              "#22d3ee" in vhtml and "#8b5cf6" in vhtml)
+        check("voice: look settings persisted in defaults",
+              all(k in vhtml for k in ("lineWidth", "glow", "opacity", "tail")))
+
+        def _cjs_defaults():
+            cjs = (module("voice-input") / "assets" / "voice-main.cjs").read_text(
+                encoding="utf-8")
+            return cjs
+
+        vcjs_src = _cjs_defaults()
+        check("voice: manager defaults carry the look knobs",
+              all(f"{k}:" in vcjs_src for k in
+                  ("followSkin", "accent", "accent2", "lineWidth", "glow",
+                   "opacity", "tail")))
+        check("voice: accent defaults are null (follow, not baked)",
+              "accent: null" in vcjs_src and "accent2: null" in vcjs_src)
         check("voice: main import line present",
               vmain.count(b'voice-main.cjs")') == 1)
         check("voice: import points at temp runtime",

@@ -54,6 +54,17 @@ const DEFAULTS = {
   hotkey: 'Ctrl+Shift+Space',
   skin: 'default',       // default | wave | halo
   device: '',            // microphone deviceId ('' = system default)
+  // look: null means "follow the skin-manager theme", and when that module
+  // is not installed the renderer falls back to its built-in cyan/violet.
+  // Keeping the defaults here as null (not a hex string) is what makes a
+  // voice-only install work: nothing depends on the other module existing.
+  followSkin: true,
+  accent: null,          // '#rrggbb' to override the primary stroke
+  accent2: null,         // '#rrggbb' to override the companion colour
+  lineWidth: 1.4,        // stroke width in px
+  glow: 8,               // shadowBlur, 0 disables the glow
+  opacity: 1,            // global stroke opacity multiplier
+  tail: true,            // the travelling arc in the halo skin
 };
 function readConfig() {
   let c = {};

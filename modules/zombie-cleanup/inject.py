@@ -32,7 +32,7 @@ CLEANUP_SCRIPT = str((RUNTIME_DIR / CLEANUP_SCRIPT_NAME).as_posix())
 # ZCode renames minified symbols between releases; the shutdown call shape is
 # <unregister>(),n(<exitCodeForSignal>(_)) — both symbols change:
 # eNi/f (<= 3.14.x) -> z7i (3.15.x) -> TYi (3.16.2) -> RYi (3.16.3)
-# -> Ios (3.17.2) -> mgs/d (3.18.0).
+# -> Ios (3.17.2) -> mgs/d (3.18.0) -> c0s/d (3.18.2).
 # All known generations are supported; exactly one must match.
 ANCHOR_314 = b"f(),n(eNi(_))"
 ANCHOR_315 = b"f(),n(z7i(_))"
@@ -40,8 +40,9 @@ ANCHOR_316 = b"f(),n(TYi(_))"
 ANCHOR_3163 = b"f(),n(RYi(_))"
 ANCHOR_3172 = b"f(),n(Ios(_))"
 ANCHOR_3180 = b"d(),n(mgs(_))"
+ANCHOR_3182 = b"d(),n(c0s(_))"
 ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163, ANCHOR_3172,
-           ANCHOR_3180)
+           ANCHOR_3180, ANCHOR_3182)
 MARKER = b"zcode-zombie-cleanup"
 
 

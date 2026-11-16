@@ -58,32 +58,68 @@ def run(script, args, env=None):
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
+def _const_blocks(src):
+    """Yield every `NAME = (b"..." b"...")` / `NAME = b"..."` literal in a file,
+    so assertions about byte payloads never trip over prose in comments."""
+    for m in re.finditer(r'^\s*([A-Z][A-Z0-9_]*)\s*=\s*(\(?)', src, re.M):
+        if not m.group(2):
+            line = src[m.end():src.find("\n", m.end())]
+            if not line.lstrip().startswith('b"'):
+                continue
+            yield line
+            continue
+        end = src.find("\n)\n", m.end())
+        if end < 0:
+            continue
+        yield src[m.end():end]
+
+
 def test_schema_alias_resolution():
     """The v7 retryTurn widening must reuse editUserQuery's real aliases."""
     print("\n--- edit-resend: schema aliases resolve in the same scope")
     src = (MODS / "edit-resend-model-fix" / "inject.py").read_text(encoding="utf-8")
-    m = re.search(r"RT_NEW = \((.*?)\)\n", src, re.S)
-    check("inject.py defines RT_NEW", m is not None)
-    if not m:
-        return
-    blk = m.group(1)
-    check("RT_NEW uses modelSelection:Wc.optional()",
-          "modelSelection:Wc.optional()" in blk, blk[:200])
-    check("RT_NEW uses mode:H4.optional()",
-          "mode:H4.optional()" in blk, blk[:200])
-    check("RT_NEW no longer references Nl",
-          "Nl." not in blk, blk[:200])
-    check("RT_NEW no longer references Cge",
-          "Cge." not in blk, blk[:200])
+    # assert_schema_aliases() must gate on the WHOLE (target, modelSelection,
+    # mode) triple. Checking modelSelection and mode separately let a future
+    # build pair `target:DR` with a reverted `mode:H4` slip through, and the
+    # hardcoded 3182 branch would then inject J4.optional() anyway - the same
+    # boot-crash class as Nl, one aliasing coincidence away.
+    check("inject.py derives the live target alias",
+          "RETRY_TARGET_RE" in src and "schema_aliases(data)" in src,
+          src[:200])
+    check("alias guard compares target+modelSelection+mode as a triple",
+          '(tgt, live_ms, live_mode) not in known' in src, src[:200])
+    known = re.findall(r'\(b"([A-Za-z$][\w$]*)", b"([A-Za-z$][\w$]*)", '
+                       r'b"([A-Za-z$][\w$]*)"\)', src)
+    check("both verified alias triples are declared",
+          ("PR", "Wc", "H4") in known and ("DR", "Wc", "J4") in known, str(known))
+    # Only the BYTE CONSTANTS matter - the comments deliberately name Nl/Cge
+    # to explain the incident.
+    consts = "\n".join(_const_blocks(src))
+    check("no alias constant references Nl", "Nl.optional()" not in consts,
+          consts[:200])
+    check("no alias constant references Cge", "Cge.optional()" not in consts,
+          consts[:200])
 
-    # uninject / verify must match byte-for-byte, or the module can be applied
-    # but never removed.
+    # uninject / verify must still recognise every payload an older run could
+    # have written, or a module can be applied but never removed.
     for name in ("uninject.py", "verify.py"):
         txt = (MODS / "edit-resend-model-fix" / name).read_text(encoding="utf-8")
-        check(f"{name} agrees on modelSelection:Wc", "modelSelection:Wc.optional()" in txt)
-        check(f"{name} agrees on mode:H4", "mode:H4.optional()" in txt)
+        check(f"{name} agrees on modelSelection:Wc",
+              "modelSelection:Wc.optional()" in txt)
+        check(f"{name} recognises the 3.18.0 payload (PR/H4)",
+              "target:PR,modelSelection:Wc.optional()" in txt
+              and "mode:H4.optional()" in txt)
+        check(f"{name} recognises the 3.18.2 payload (DR/J4)",
+              "target:DR,modelSelection:Wc.optional()" in txt
+              and "mode:J4.optional()" in txt)
         check(f"{name} has no stale Nl alias",
               "modelSelection:Nl.optional()" not in txt)
+
+    # Idempotency: a second inject must recognise its own output. The live
+    # target regex has to stop at `,` as well as `}` or it cannot see a schema
+    # it already widened (regression caught on the real 3.18.2 tree).
+    check("live target regex accepts an already-widened schema",
+          r'[\w$]+)[,}]' in src, src[:200])
 
     if not CJS_BAK.is_file():
         print("  [SKIP] original cjs not available, cannot verify scope")
@@ -94,11 +130,15 @@ def test_schema_alias_resolution():
     if i <= 0:
         return
     seg = cjs[i:i + 520]
+    aliases = {}
     for key in ("modelSelection", "mode"):
         a = re.search(key + r":([A-Za-z_$][\w$]*)", seg)
-        alias = a.group(1) if a else "?"
-        check(f"editUserQuery uses {key}:{alias} (matches our patch)",
-              alias in ("Wc", "H4"), f"got {alias}")
+        aliases[key] = a.group(1) if a else "?"
+    t = re.search(r"retryTurn:m\.object\(\{target:([A-Za-z_$][\w$]*)", cjs)
+    aliases["target"] = t.group(1) if t else "?"
+    triple = (aliases["target"], aliases["modelSelection"], aliases["mode"])
+    check(f"this cjs's alias triple {triple} is one the module knows",
+          triple in (("PR", "Wc", "H4"), ("DR", "Wc", "J4")), str(triple))
     # An alias only counts if it really behaves like a zod schema.
     check("Wc.optional() appears many times (real zod alias)",
           len(re.findall(r"\bWc\.optional\(\)", cjs)) > 10)
@@ -253,11 +293,93 @@ def load_modules_for_contract():
     return out
 
 
+def test_edit_resend_idempotent_on_real_cjs():
+    """A second inject must be a clean no-op on a real cjs, and the payload it
+    writes must use THAT file's live aliases.
+
+    The 2026-11-16 refactor derived the target alias with a regex that only
+    accepted `target:X}` - so the already-widened `target:X,modelSelection:...`
+    looked like "no retryTurn schema at all", and running install.bat twice (or
+    reinstalling over a patched tree) aborted with exit 2."""
+    print("\n--- edit-resend: re-inject is idempotent on a real cjs")
+    if not CJS_BAK.is_file():
+        print("  [SKIP] original cjs not available")
+        return
+    tmp = Path(tempfile.mkdtemp(prefix="zmodidem_"))
+    try:
+        cjs = tmp / "zcode.cjs"
+        shutil.copy(CJS_BAK, cjs)
+        env = dict(os.environ)
+        env["USERPROFILE"] = str(tmp / "home")
+        (tmp / "home").mkdir()
+
+        inject = MODS / "edit-resend-model-fix" / "inject.py"
+        rc1, out1 = run(inject, ["--zcode-cjs", str(cjs)], env)
+        check("first inject succeeds", rc1 == 0, out1[-300:])
+        once = cjs.read_bytes()
+
+        rc2, out2 = run(inject, ["--zcode-cjs", str(cjs)], env)
+        check("second inject exits 0 (no drift abort)", rc2 == 0, out2[-400:])
+        check("second inject leaves the file untouched",
+              cjs.read_bytes() == once)
+        check("second inject reports it skipped, not re-patched",
+              "already widened" in out2, out2[-300:])
+
+        rc3, out3 = run(MODS / "edit-resend-model-fix" / "verify.py",
+                        ["--zcode-cjs", str(cjs)], env)
+        check("verify accepts the twice-injected file", rc3 == 0, out3[-300:])
+
+        rc4, out4 = run(MODS / "edit-resend-model-fix" / "uninject.py",
+                        ["--zcode-cjs", str(cjs)], env)
+        check("uninject succeeds after a double inject", rc4 == 0, out4[-300:])
+        check("cjs restored byte-for-byte", cjs.read_bytes() == CJS_BAK.read_bytes())
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_schema_alias_drift_is_rejected():
+    """A live triple outside the verified set must abort BEFORE writing.
+
+    The guard used to check modelSelection and mode separately, so a build that
+    kept `target:DR` but reverted `mode` to `H4` passed the check while the
+    hardcoded 3182 branch still injected `J4.optional()` - the Nl class of boot
+    crash by a different route."""
+    print("\n--- edit-resend: unverified alias triples are refused")
+    if not CJS_BAK.is_file():
+        print("  [SKIP] original cjs not available")
+        return
+    tmp = Path(tempfile.mkdtemp(prefix="zmoddrift_"))
+    try:
+        env = dict(os.environ)
+        env["USERPROFILE"] = str(tmp / "home")
+        (tmp / "home").mkdir()
+        base = CJS_BAK.read_bytes()
+
+        # target=DR but mode reverted to H4: neither known triple
+        drifted = base.replace(
+            b"mode:J4.optional(),planEnabled:m.boolean().optional()}).superRefine",
+            b"mode:H4.optional(),planEnabled:m.boolean().optional()}).superRefine", 1)
+        if drifted == base:
+            print("  [SKIP] this cjs has no DR/J4 schema to perturb")
+            return
+        cjs = tmp / "drift.cjs"
+        cjs.write_bytes(drifted)
+        rc, out = run(MODS / "edit-resend-model-fix" / "inject.py",
+                      ["--zcode-cjs", str(cjs)], env)
+        check("mismatched target/mode combination exits 2", rc == 2, out[-300:])
+        check("the refusal names the live triple", "target=DR" in out, out[-300:])
+        check("the file is left untouched", cjs.read_bytes() == drifted)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     print("=" * 62)
     print("  incident regression: boot failure + skipped uninstall")
     print("=" * 62)
     test_schema_alias_resolution()
+    test_edit_resend_idempotent_on_real_cjs()
+    test_schema_alias_drift_is_rejected()
     test_storage_prepare_runs()
     test_stale_means_injected()
     test_script_arg_contract()

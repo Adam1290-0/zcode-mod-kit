@@ -20,12 +20,18 @@ GATE_NEW = (b"/*[zcode-editresend-model-fix:v7]*/"
 RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Wc.optional(),"
           b"mode:H4.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
+RT_NEW_3182 = (b"retryTurn:m.object({target:DR,modelSelection:Wc.optional(),"
+               b"mode:J4.optional(),planEnabled:m.boolean().optional()}),"
+               b"setAssistantFeedback")
 
 NEE_UPSTREAM = (b"...o?{modelSelection:o.modelSelection,mode:o.mode,"
                 b"planEnabled:o.planEnabled}:{}")
 SEL_SPREAD = (b"...si?{modelSelection:si.modelSelection,mode:si.mode,"
               b"planEnabled:si.planEnabled}:{}")
+SEL_SPREAD_3182 = (b"...((_r)=>_r?{modelSelection:_r.modelSelection,"
+                   b"mode:_r.mode,planEnabled:_r.planEnabled}:{})(ii()),")
 BI_FINAL = b"return Ni(`retryTurn`,{target:e," + SEL_SPREAD
+BI_FINAL_3182 = b"return Mi(`retryTurn`,{target:e," + SEL_SPREAD_3182
 
 
 def log(msg: str) -> None:
@@ -73,7 +79,7 @@ def main() -> None:
         problems.append("cjs: retryTurn payload gate not widened")
     if GATE_OLD in data:
         problems.append("cjs: original editUserQuery-only gate still present")
-    if RT_NEW not in data:
+    if RT_NEW not in data and RT_NEW_3182 not in data:
         problems.append("cjs: retryTurn schema not widened")
     if not problems:
         node_check(data, "cjs")
@@ -89,14 +95,14 @@ def main() -> None:
                     continue
                 rd = js.read_bytes()
                 if (b"zcode-editresend-ui" in rd or SEL_SPREAD in rd
-                        or NEE_UPSTREAM in rd):
+                        or SEL_SPREAD_3182 in rd or NEE_UPSTREAM in rd):
                     rcands.append(js)
         if len(rcands) != 1:
             problems.append(f"renderer: {len(rcands)} candidate chunks "
                             "(expected 1)")
         else:
             rd = rcands[0].read_bytes()
-            if BI_FINAL not in rd:
+            if BI_FINAL not in rd and BI_FINAL_3182 not in rd:
                 problems.append("renderer: retry selection spread missing")
             if NEE_UPSTREAM not in rd:
                 problems.append("renderer: upstream edit fix missing "

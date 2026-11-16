@@ -4,9 +4,9 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.8.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-1.9.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
-给 [ZCode](https://zcode.z.ai) 桌面端的**九模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
+给 [ZCode](https://zcode.z.ai) 桌面端的**十模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
 **本仓库是以下独立项目（均已停止单独更新）的整合后续**：
 
@@ -145,7 +145,7 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0（3.11.2 及更早见各模块历史 README） |
+| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 / 3.18.2（3.11.2 及更早见各模块历史 README） |
 | voice-input | 仅 3.18.0（takes over the mic button 3.18 introduced） |
 
 > ⚠️ This is a **community third-party patch suite**. It modifies ZCode's `app.asar` and `zcode.cjs`, is **not affiliated with ZCode**, and every module can break on a ZCode update. Read [DISCLAIMER.md](DISCLAIMER.md) before use. ZCode is closed-source and updates frequently — if your version is not listed, do not patch; open an issue with your version number.
@@ -202,12 +202,37 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 |
+| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 / 3.18.2 |
 | voice-input（新增） | 仅 3.18.0（接管官方 3.18 才有的麦克风按钮） |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v1.9.0 — ZCode 3.18.2 适配 + 语音皮肤重做（voice-input v1.2.0）
+
+**ZCode 3.18.2 适配**：10 个模块全部实测通过，但只有两处真漂移。
+
+- 🔧 **zombie-cleanup**：shutdown handler 符号 `mgs` → `c0s`，新增第七代锚点 `d(),n(c0s(_))`（inject / uninject 同步）
+- 🔧 **edit-resend-model-fix v7.0.2**：四处改名全部跟着改
+  - cjs `target:PR` → `target:DR`
+  - cjs `mode:H4` → `mode:J4`（**`H4` 在 3.18.2 已绑到无关的 subagent object schema**）
+  - renderer 分发器 `Ni` → `Mi`
+  - renderer 草稿读取器 `si` → `ii()`，用 IIFE 只求值一次
+- 🛡️ **别名漂移硬校验**：注入前从**同作用域**的 `editUserQuery` schema 反查真实别名，并按 `(target, modelSelection, mode)` **三元组**比对；不在已验证集合（`PR/Wc/H4`、`DR/Wc/J4`）就 exit 2 拒绝注入，绝不静默打错。上一轮只单独校验 modelSelection 和 mode，像「target 是 DR 但 mode 退回 H4」这种组合会漏过去，而那正是 `Nl is not defined` 启动崩溃的同类
+- 🛡️ **注入侧改为按实时别名拼装**：不再靠字符串匹配挑 3.18.0 / 3.18.2 分支，写进文件的 schema 永远和它所在文件一致
+- 🐛 **修二次注入失败**：实时 target 正则原先只认 `target:X}`，看不见自己刚写出的 `target:X,modelSelection:...`，导致重跑 `install.bat` 直接 exit 2。现已接受 `,` 与 `}` 两种结尾（真机 3.18.2 树抓到）
+- 🐛 **修 manager 默认皮肤失效**：`voice-main.cjs` 的默认值还写着已废弃的 `'default'`，全新安装会先画成 halo 兜底，直到用户手动选一次皮肤。默认改为 `'jarvis'`；未知皮肤名也补了 halo 兜底，不再什么都不画
+- ✨ **voice-input v1.2.0 皮肤重做**：新增三款 HUD 皮肤，同一套 analyser 数据驱动
+  - `jarvis` 金色光核：呼吸光核 + 光环 + 粒子喷流
+  - `bars` 横向频谱：32-48 根发光条，金色到青色渐变，峰值闪光
+  - `pulse` 心跳波形：霓虹锯齿波，声音变大时炸成火花
+  - 共享攻击快 / 释放慢的包络（VU 弹道），96 段对数映射频谱，尺寸跟随输入框真实宽高
+- 🐛 **修录音中途点发送**：此前会先把半截草稿发出去、最终结果再落到输入框。现在拦下点击，等识别完成、文本落进草稿后再发；识别失败会明确告知并取消本次发送，不静默丢弃
+- 🐛 **修状态行定位**：输入框变高（换行、附件、改窗口大小）时状态行会错位。改为逐帧跟随输入框位置
+- 🧪 **293 项测试全绿**（engine 22 + modules 176 + edge 52 + incident 46 + 皮肤 smoke 21）
+- 🧪 **真机 3.18.2 端到端**：10 模块注入 → verify 0 → **二次注入幂等** → 卸载 → 6 处写入目标字节级还原
+- 🧪 **真实启动握手**：干净 / 五模块全打 / 还原后三种状态各跑一次真正的 `--prepare-storage` worker，均正常返回 `storagePrepared`，无 `is not defined`
 
 ### v1.8.0 — 语音模块外观与交互重做（voice-input v0.5.0）
 

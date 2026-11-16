@@ -19,8 +19,9 @@ ANCHOR_316 = b"f(),n(TYi(_))"
 ANCHOR_3163 = b"f(),n(RYi(_))"
 ANCHOR_3172 = b"f(),n(Ios(_))"
 ANCHOR_3180 = b"d(),n(mgs(_))"
+ANCHOR_3182 = b"d(),n(c0s(_))"
 ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163, ANCHOR_3172,
-           ANCHOR_3180)
+           ANCHOR_3180, ANCHOR_3182)
 
 RUNTIME_DIR = Path(os.path.expanduser("~/.zcode/plugins/zombie-cleanup"))
 CLEANUP_SCRIPT_NAME = "cleanup_mcp_zombies.ps1"

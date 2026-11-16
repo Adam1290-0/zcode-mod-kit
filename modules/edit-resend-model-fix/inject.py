@@ -28,6 +28,7 @@ v7 therefore has three anchors, all on the retry path:
           upstream edit callback uses, so both paths stay consistent)
 """
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,7 @@ GATE_NEW = (V7_TAG +
             b'let d=t.type==="editUserQuery"||t.type==="retryTurn"?t.payload:void 0')
 
 RT_OLD = b"retryTurn:m.object({target:PR}),setAssistantFeedback"
+RT_OLD_3182 = b"retryTurn:m.object({target:DR}),setAssistantFeedback"
 # Schema aliases MUST come from the sibling editUserQuery schema in the same
 # scope, not from anywhere else in the file: minified names are reused across
 # unrelated scopes, and `Nl`/`Cge` (taken from a grep hit elsewhere in the
@@ -50,18 +52,44 @@ RT_OLD = b"retryTurn:m.object({target:PR}),setAssistantFeedback"
 # prepare worker with "Nl is not defined" and ZCode failed to boot with
 # transport_closed (2026-11-12). editUserQuery (verified on 3.18.0) uses
 # modelSelection:Wc / mode:H4 / planEnabled:m.boolean().
+# 3.18.2: target PR -> DR AND mode H4 -> J4. Never carry an alias across
+# versions: H4 now names an unrelated subagent object schema, so the stale
+# value would have produced `H4.optional()` on a non-zod object.
 RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Wc.optional(),"
           b"mode:H4.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
+RT_NEW_3182 = (b"retryTurn:m.object({target:DR,modelSelection:Wc.optional(),"
+               b"mode:J4.optional(),planEnabled:m.boolean().optional()}),"
+               b"setAssistantFeedback")
 
-# --------------------------- renderer anchors (3.18.0) --------------------
+# Guard against the class of bug above: derive the live aliases straight from
+# the sibling editUserQuery schema before touching anything. A drifted alias
+# is a hard failure, never a silent patch.
+EDIT_SCHEMA_RE = re.compile(
+    rb'editUserQuery:m\.object\(\{[^}]*?'
+    rb'modelSelection:([\w$]+)\.optional\(\)[^}]*?'
+    rb'mode:([\w$]+)\.optional\(\)')
+RETRY_TARGET_RE = re.compile(rb"retryTurn:m\.object\(\{target:([\w$]+)[,}]")
+
+# --------------------------- renderer anchors ------------------------------
 NEE_UPSTREAM = (b"...o?{modelSelection:o.modelSelection,mode:o.mode,"
                 b"planEnabled:o.planEnabled}:{}")
 BI_OLD = b"return Ni(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Ni,t])"
+# 3.18.2 renamed the dispatch helper Ni -> Mi and dropped the `si` selector;
+# the composer submit-payload callback `ii()` sits in the same scope and
+# returns the live {modelSelection,mode,planEnabled}, so read from it.
+# `ii()` is evaluated exactly once via an IIFE parameter: a `let` cannot be
+# declared inside an object literal, and three separate ii() calls would read
+# the same ref three times for no benefit.
+BI_OLD_3182 = b"return Mi(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Mi,t])"
 SEL_SPREAD = (b"...si?{modelSelection:si.modelSelection,mode:si.mode,"
               b"planEnabled:si.planEnabled}:{}")
+SEL_SPREAD_3182 = (b"...((_r)=>_r?{modelSelection:_r.modelSelection,"
+                   b"mode:_r.mode,planEnabled:_r.planEnabled}:{})(ii()),")
 BI_NEW = (b"return Ni(`retryTurn`,{target:e," + SEL_SPREAD +
           b"},t,n.revision,n.logEpoch)}/*[zcode-editresend-ui]*/,[Ni,t])")
+BI_NEW_3182 = (b"return Mi(`retryTurn`,{target:e," + SEL_SPREAD_3182 +
+               b"},t,n.revision,n.logEpoch)}/*[zcode-editresend-ui]*/,[Mi,t])")
 
 
 def log(msg: str) -> None:
@@ -88,9 +116,52 @@ def node_check(data: bytes, label: str) -> None:
         Path(path).unlink(missing_ok=True)
 
 
+def schema_aliases(data: bytes) -> tuple:
+    """Read the live (target, modelSelection, mode) aliases for the retryTurn
+    widening. Both come from the SAME scope: `target` from the retryTurn schema
+    that is about to be widened, modelSelection/mode from its sibling
+    editUserQuery schema.
+
+    Reading the target live (instead of trusting RT_OLD/RT_OLD_3182) is what
+    closes the last hole: a future build could keep `target:DR` but revert the
+    mode alias, and a hardcoded 3182 branch would then inject `J4.optional()`
+    where the file says otherwise - the `Nl is not defined` class of boot
+    crash, one aliasing coincidence away."""
+    m = EDIT_SCHEMA_RE.search(data)
+    if not m:
+        fail("cjs: cannot locate editUserQuery schema to derive aliases "
+             "(version drift?) - refusing to patch", 2)
+    t = RETRY_TARGET_RE.search(data)
+    if not t:
+        fail("cjs: cannot locate retryTurn schema to derive its target alias "
+             "(version drift?) - refusing to patch", 2)
+    return t.group(1), m.group(1), m.group(2)
+
+
+def assert_schema_aliases(aliases: tuple) -> None:
+    """Fail loudly when the live aliases are not a combination this module has
+    verified. Silent drift here is what produced `Nl is not defined` ->
+    transport_closed -> ZCode would not boot."""
+    tgt, live_ms, live_mode = aliases
+    known = {
+        (b"PR", b"Wc", b"H4"),   # 3.18.0
+        (b"DR", b"Wc", b"J4"),   # 3.18.2
+    }
+    if (tgt, live_ms, live_mode) not in known:
+        fail(f"cjs: schema aliases drifted - live target={tgt.decode()} "
+             f"modelSelection={live_ms.decode()} mode={live_mode.decode()}; "
+             f"known PR/Wc/H4 (3.18.0) and DR/Wc/J4 (3.18.2). Update RT_NEW* "
+             f"before injecting.", 2)
+    log(f"cjs: schema aliases ok (target={tgt.decode()}, "
+        f"modelSelection={live_ms.decode()}, mode={live_mode.decode()})")
+
+
 def patch_cjs(tpath: Path) -> None:
     data = tpath.read_bytes()
     changed = False
+
+    aliases = schema_aliases(data)
+    assert_schema_aliases(aliases)
 
     if GATE_NEW in data:
         log("cjs L1: builder gate already widened, skip")
@@ -104,14 +175,24 @@ def patch_cjs(tpath: Path) -> None:
     else:
         fail("cjs L1: builder-gate anchor not found (version drift?)", 2)
 
-    if RT_NEW in data:
+    # Build both sides from the LIVE aliases, so the injected text can never
+    # disagree with the file it lands in. The literal RT_OLD/RT_NEW constants
+    # stay for uninject/verify (they have to recognise text written by an older
+    # run), but inject no longer picks one by string matching.
+    tgt, live_ms, live_mode = aliases
+    rt_old_live = b"retryTurn:m.object({target:" + tgt + b"}),setAssistantFeedback"
+    rt_new_live = (b"retryTurn:m.object({target:" + tgt +
+                   b",modelSelection:" + live_ms + b".optional(),mode:" +
+                   live_mode + b".optional(),planEnabled:m.boolean().optional()}),"
+                   b"setAssistantFeedback")
+    if rt_new_live in data or RT_NEW in data or RT_NEW_3182 in data:
         log("cjs L2: retryTurn schema already widened, skip")
     else:
-        n = data.count(RT_OLD)
+        n = data.count(rt_old_live)
         if n != 1:
-            fail(f"cjs retryTurn schema anchor matched {n} times (expected 1)",
-                 2)
-        data = data.replace(RT_OLD, RT_NEW, 1)
+            fail(f"cjs retryTurn schema anchor matched {n} times (expected 1) "
+                 f"for target={tgt.decode()} (version drift?)", 2)
+        data = data.replace(rt_old_live, rt_new_live, 1)
         changed = True
         log("cjs L2: retryTurn schema widened")
 
@@ -124,7 +205,8 @@ def renderer_candidates(root: Path):
     assets = root / "out" / "renderer" / "assets"
     if not assets.is_dir():
         fail(f"renderer assets dir not found: {assets}")
-    keys = [BI_OLD, BI_NEW, NEE_UPSTREAM, b"zcode-editresend-ui"]
+    keys = [BI_OLD, BI_OLD_3182, BI_NEW, BI_NEW_3182, NEE_UPSTREAM,
+            b"zcode-editresend-ui"]
     for js in sorted(assets.glob("*.js")):
         if js.stat().st_size < 100_000:
             continue
@@ -148,14 +230,19 @@ def patch_renderer(root: Path) -> None:
              "before trusting v7", 2)
     log("renderer: edit side already fixed upstream, no patch needed")
 
-    if BI_NEW in data:
+    if BI_NEW in data or BI_NEW_3182 in data:
         log("renderer: retry already carries selection, skip")
         return
-    n = data.count(BI_OLD)
-    if n != 1:
-        fail(f"renderer retry anchor matched {n} times (expected 1)", 2)
-    data = data.replace(BI_OLD, BI_NEW, 1)
-    log("renderer: retry callback now carries live draft selection (si)")
+    for old, new, note in ((BI_OLD, BI_NEW, "si"),
+                           (BI_OLD_3182, BI_NEW_3182, "ii()")):
+        n = data.count(old)
+        if n == 1:
+            data = data.replace(old, new, 1)
+            log(f"renderer: retry callback now carries live draft selection ({note})")
+            break
+    else:
+        fail("renderer retry anchor matched 0 or >1 times (expected 1) "
+             "(version drift?)", 2)
 
     node_check(data, "renderer")
     rpath.write_bytes(data)

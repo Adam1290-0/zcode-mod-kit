@@ -20,12 +20,21 @@ RT_OLD = b"retryTurn:m.object({target:PR}),setAssistantFeedback"
 RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Wc.optional(),"
           b"mode:H4.optional(),planEnabled:m.boolean().optional()}),"
           b"setAssistantFeedback")
+RT_OLD_3182 = b"retryTurn:m.object({target:DR}),setAssistantFeedback"
+RT_NEW_3182 = (b"retryTurn:m.object({target:DR,modelSelection:Wc.optional(),"
+               b"mode:J4.optional(),planEnabled:m.boolean().optional()}),"
+               b"setAssistantFeedback")
 
 SEL_SPREAD = (b"...si?{modelSelection:si.modelSelection,mode:si.mode,"
               b"planEnabled:si.planEnabled}:{}")
+SEL_SPREAD_3182 = (b"...((_r)=>_r?{modelSelection:_r.modelSelection,"
+                   b"mode:_r.mode,planEnabled:_r.planEnabled}:{})(ii()),")
 BI_NEW = (b"return Ni(`retryTurn`,{target:e," + SEL_SPREAD +
           b"},t,n.revision,n.logEpoch)}/*[zcode-editresend-ui]*/,[Ni,t])")
 BI_OLD = b"return Ni(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Ni,t])"
+BI_NEW_3182 = (b"return Mi(`retryTurn`,{target:e," + SEL_SPREAD_3182 +
+               b"},t,n.revision,n.logEpoch)}/*[zcode-editresend-ui]*/,[Mi,t])")
+BI_OLD_3182 = b"return Mi(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Mi,t])"
 
 
 def log(msg: str) -> None:
@@ -71,6 +80,12 @@ def uninject_cjs(tpath: Path) -> None:
         data = data.replace(RT_NEW, RT_OLD, 1)
         touched = True
         log("cjs L2: retryTurn schema unwidened")
+    elif RT_NEW_3182 in data:
+        if data.count(RT_NEW_3182) != 1:
+            fail("cjs retryTurn widened schema matched != 1; abort", 2)
+        data = data.replace(RT_NEW_3182, RT_OLD_3182, 1)
+        touched = True
+        log("cjs L2: retryTurn schema unwidened")
 
     if touched:
         node_check(data, "cjs")
@@ -82,7 +97,8 @@ def renderer_candidates(root: Path):
     assets = root / "out" / "renderer" / "assets"
     if not assets.is_dir():
         fail(f"renderer assets dir not found: {assets}")
-    keys = [b"zcode-editresend-ui", SEL_SPREAD, BI_OLD]
+    keys = [b"zcode-editresend-ui", SEL_SPREAD, SEL_SPREAD_3182, BI_OLD,
+            BI_OLD_3182]
     for js in sorted(assets.glob("*.js")):
         if js.stat().st_size < 100_000:
             continue
@@ -108,8 +124,15 @@ def uninject_renderer(root: Path) -> None:
         data = data.replace(BI_NEW, BI_OLD, 1)
         touched = True
         log("renderer retry: reverted")
+    elif BI_NEW_3182 in data:
+        if data.count(BI_NEW_3182) != 1:
+            fail("renderer retry patch matched != 1; abort", 2)
+        data = data.replace(BI_NEW_3182, BI_OLD_3182, 1)
+        touched = True
+        log("renderer retry: reverted")
 
-    if b"zcode-editresend-ui" in data or SEL_SPREAD in data:
+    if (b"zcode-editresend-ui" in data or SEL_SPREAD in data
+            or SEL_SPREAD_3182 in data):
         fail("renderer: stray editresend markers remain; abort", 2)
 
     if touched:

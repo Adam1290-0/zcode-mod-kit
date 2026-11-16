@@ -33,7 +33,7 @@
   var AUDIO_CFG = { channelCount: 1, echoCancellation: true, noiseSuppression: true };
 
   // ---- state ----
-  var cfg = { mode: 'official', autoStart: false, idleMin: 10, hotkey: 'Ctrl+Shift+Space', skin: 'default', device: '',
+  var cfg = { mode: 'official', autoStart: false, idleMin: 10, hotkey: 'Ctrl+Shift+Space', skin: 'jarvis', device: '',
               // look: follow the skin-manager theme when present, else use
               // these two. `accent` drives the primary stroke, `accent2` the
               // secondary/gradient end. null = use the built-in pair.
@@ -47,6 +47,7 @@
               // of floating as a separate bar
               fusedHud: true };
   var audioCtx = null, stream = null, proc = null, analyser = null, freq = null;
+  var timeData = null;   // waveform frame (jarvis ribbon uses it)
   var chunks = null, recording = false, busy = false, ctxRate = 48000;
   var recT0 = 0, recTimer = 0, realtimeTimer = 0, rafId = 0;
   var menu = null, canvas = null, cctx = null;
@@ -56,6 +57,7 @@
   var hotkeyTarget = null;      // the button showing "press a combination"
   var ensureOk = false;
   var officialBtn = null;   // cached node we took over
+  var pendingSend = null;   // send request parked while a recording settles
   var skinObserver = null;  // watches the skin-manager's theme vars
 
   // ---- palette ----------------------------------------------------------
@@ -191,6 +193,10 @@
       showBar(barState, el('zvoice-bar-text') ? el('zvoice-bar-text').textContent : '', {});
     }
     if (cfg.skin === 'halo' && cctx) drawHalo(lastFreq || new Uint8Array(64));
+    else if (cfg.skin === 'jarvis' && cctx) drawJarvis(lastFreq || new Uint8Array(64), 0);
+    else if (cfg.skin === 'bars' && cctx) drawBars(lastFreq || new Uint8Array(64), 0);
+    else if (cfg.skin === 'pulse' && cctx) drawPulse(lastFreq || new Uint8Array(64), 0);
+    else if (cctx) drawHalo(lastFreq || new Uint8Array(64));
   }
 
   // Follow the skin-manager live: it rewrites the accent CSS variables when
@@ -363,13 +369,48 @@
   }
 
   // Position the fused line just above the composer, following the palette.
+  // The fused status line rides the composer, so its anchor must be re-read
+  // continuously: the composer grows when the user types a second line, when
+  // an attachment chip appears, or when the window is resized. A one-shot
+  // measurement (the old behaviour) left the text stranded at the height the
+  // box had when recording started -- the "text position goes wrong" report.
+  var fusedRaf = 0;
   function placeFusedBar() {
+    if (!bar) return;
     var composer = findComposer();
-    if (!composer) { bar.style.left = '50%'; bar.style.top = 'auto'; bar.style.bottom = '96px'; return; }
+    if (!composer) {
+      bar.style.left = '50%';
+      bar.style.transform = 'translateX(-50%)';
+      bar.style.top = 'auto';
+      bar.style.bottom = '96px';
+      return;
+    }
     var r = composer.getBoundingClientRect();
+    // transform must be cleared, otherwise the leftover translateX(-50%)
+    // from non-fused mode shifts the line half its own width to the left.
+    bar.style.transform = 'none';
     bar.style.left = (r.left + 14) + 'px';
-    bar.style.bottom = (window.innerHeight - r.top + 6) + 'px';
     bar.style.top = 'auto';
+    bar.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+    // keep it inside the composer's horizontal span
+    var maxW = Math.max(120, r.width - 28);
+    bar.style.maxWidth = maxW + 'px';
+  }
+
+  function startFusedTracking() {
+    if (fusedRaf) return;
+    var tick = function () {
+      if (!bar || bar.style.display === 'none' || cfg.fusedHud === false) {
+        fusedRaf = 0;
+        return;
+      }
+      placeFusedBar();
+      fusedRaf = requestAnimationFrame(tick);
+    };
+    fusedRaf = requestAnimationFrame(tick);
+  }
+  function stopFusedTracking() {
+    if (fusedRaf) { cancelAnimationFrame(fusedRaf); fusedRaf = 0; }
   }
 
   function showBar(state, text, extra) {
@@ -390,7 +431,9 @@
       bar.style.border = 'none';
       bar.style.justifyContent = '';
       placeFusedBar();
+      startFusedTracking();
     } else {
+      stopFusedTracking();
       bar.style.background = 'rgba(20,20,28,.92)';
       bar.style.padding = '8px 14px';
       bar.style.borderRadius = '10px';
@@ -416,7 +459,10 @@
     dot.style.animation = state === 'rec' ? 'zvoice-pulse 1.1s infinite' : 'none';
   }
 
-  function hideBar() { if (bar) bar.style.display = 'none'; }
+  function hideBar() {
+    if (bar) bar.style.display = 'none';
+    stopFusedTracking();
+  }
 
   // ---- official button visual sync ----
   // Local recording should look like official recording: flip data-voice-state
@@ -439,9 +485,12 @@
       chunks = [];
       var src = audioCtx.createMediaStreamSource(s);
       analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 128;
-      analyser.smoothingTimeConstant = 0.75;
+      // 512 gives 256 bins: enough resolution for a 96-sector log ring and a
+      // smooth waveform ribbon. 128 (64 bins) was too coarse.
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.7;
       freq = new Uint8Array(analyser.frequencyBinCount);
+      timeData = new Uint8Array(analyser.fftSize);
       src.connect(analyser);
       proc = audioCtx.createScriptProcessor(4096, 1, 1);
       proc.onaudioprocess = function (e) {
@@ -573,6 +622,7 @@
         var text = (j.text || '').trim();
         if (!text || text === lastDraftText) return;
         lastDraftText = text;
+        jvFlash = 1;      // one-shot flare in the Jarvis-family skins
         pasteInto(findEditable(), text, 'draft');
         // the fused HUD shows a short echo of what was heard so far
         showBar('rec', '识别中 · ' + text.slice(-28));
@@ -641,12 +691,78 @@
       lastDraftText = '';
       showBar('done', '已插入 ' + text.length + ' 字（本地解码 ' + j.decodeMs + 'ms）');
       setTimeout(hideBar, 2000);
+      // If the user hit send while we were still recording, the click was
+      // parked. Now that the final text is in the draft, release it.
+      if (pendingSend) releasePendingSend();
     }).catch(function (e) {
       busy = false;
       showBar('err', '请求失败：' + e.message);
       setTimeout(hideBar, 3000);
+      // A parked send must not be lost silently: drop it and tell the user,
+      // since the draft does not contain what they wanted to send.
+      if (pendingSend) {
+        pendingSend = null;
+        showBar('err', '识别失败，已取消本次发送');
+        setTimeout(hideBar, 3000);
+      }
     });
   }
+
+  // Release a parked send after the transcript has landed in the draft.
+  function releasePendingSend() {
+    var p = pendingSend;
+    pendingSend = null;
+    // Let React flush the draft update into its own state before the click:
+    // sending in the same tick would read the pre-paste value.
+    setTimeout(function () {
+      var ed = findEditable();
+      if (p === 'enter') {
+        if (!ed) return;
+        ed.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true,
+        }));
+      } else if (p && p.isConnected) {
+        p.click();
+      } else {
+        // button was re-rendered while we waited: re-find it
+        var b = document.querySelector('.chat-composer-region [data-testid="v4-composer-send"]')
+             || document.querySelector('.chat-composer-region button[type="submit"]');
+        if (b) b.click();
+      }
+    }, 60);
+  }
+
+  // ---- SEND GUARD: never let a half-transcribed draft be sent ----
+  // If the user hits send while a local recording is still running, the draft
+  // holds either stale partial text or nothing at all; letting the send
+  // through would post the wrong message and the final transcript would then
+  // land in the box AFTER sending (the exact bug reported). So: swallow the
+  // click, finish the recording, wait for the final transcript, then send.
+  document.addEventListener('click', function (ev) {
+    if (!recording && !busy) return;
+    var t = ev.target;
+    if (!t || !t.closest) return;
+    var sendBtn = t.closest('[data-testid="v4-composer-send"], button[type="submit"]');
+    if (!sendBtn) return;
+    if (!sendBtn.closest('.chat-composer-region')) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    ev.stopPropagation();
+    pendingSend = sendBtn;
+    if (recording) finishRecording();
+    return;
+  }, true);
+
+  // Keyboard submit (Enter) while recording: same guard.
+  document.addEventListener('keydown', function (ev) {
+    if (!recording && !busy) return;
+    if (ev.key !== 'Enter' || ev.shiftKey || ev.ctrlKey || ev.altKey) return;
+    if (!(ev.target && ev.target.closest && ev.target.closest('.chat-composer-region'))) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    pendingSend = 'enter';
+    if (recording) finishRecording();
+  }, true);
 
   // ---- TAKEOVER: capture-phase click interception on the official button ----
   // React binds onClick on the button itself; a capture listener on document
@@ -741,7 +857,10 @@
     if (cctx) cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   function startSkin() {
-    if (cfg.skin === 'default') { rafId = 0; return; }
+    // 'default' was retired (its floating pill clashed with the composer by
+    // design). Stored configs that still say 'default' fall back to 'jarvis'
+    // rather than rendering nothing.
+    if (!cfg.skin || cfg.skin === 'default') cfg.skin = 'jarvis';
     ensureCanvas();
     if (!canvas) return;
     canvas.style.display = 'block';
@@ -752,6 +871,9 @@
       analyser.getByteFrequencyData(freq);
       t += 0.05;
       if (cfg.skin === 'wave') drawWave(freq, t);
+      else if (cfg.skin === 'jarvis') drawJarvis(freq, t);
+      else if (cfg.skin === 'bars') drawBars(freq, t);
+      else if (cfg.skin === 'pulse') drawPulse(freq, t);
       else drawHalo(freq, t);
       rafId = requestAnimationFrame(loop);
     };
@@ -924,6 +1046,602 @@
     }
   }
 
+  // ===================================================================
+  // Jarvis skin family — three hand-tuned looks, all sharing the same
+  // analyser data (log-mapped envelope + waveform).
+  //
+  //   jarvis  = 金色光核    breathing gold core, halo rings, particle jets
+  //   bars    = 横向频谱    32-48 glowing bars, gold -> cyan, peak flashes
+  //   pulse   = 心跳波形    neon wave that explodes into sparks on loud input
+  //
+  // Everything is sized from the composer's real width/height, so the HUD
+  // fills the input box instead of sitting in the middle as a small badge.
+  // ===================================================================
+  var jvEnv = null;        // per-sector envelope state
+  var jvRms = 0;           // smoothed overall loudness 0..1
+  var jvFlash = 0;         // one-shot flare on each new partial result
+
+  var JV_SECTORS = 96;     // log-mapped spectrum sectors
+
+  // Attack fast, release slow -- the classic VU ballistics.
+  function jvEnvelope(data, prev) {
+    if (!prev || prev.length !== JV_SECTORS) prev = new Float32Array(JV_SECTORS);
+    var n = data.length;
+    for (var i = 0; i < JV_SECTORS; i++) {
+      var k = i / (JV_SECTORS - 1);
+      var lo = Math.floor((Math.pow(n, k) - 1) / (n - 1) * (n - 1));
+      var hi = Math.floor((Math.pow(n, (i + 1) / (JV_SECTORS - 1)) - 1) / (n - 1) * (n - 1));
+      if (hi <= lo) hi = lo + 1;
+      if (hi > n) hi = n;
+      var sum = 0, cnt = 0;
+      for (var b = lo; b < hi; b++) { sum += data[b]; cnt++; }
+      var v = cnt ? sum / cnt / 255 : 0;
+      v = Math.min(1, v * (1 + k * 0.55));   // lift the quiet top end
+      prev[i] += (v - prev[i]) * (v > prev[i] ? 0.55 : 0.13);
+    }
+    return prev;
+  }
+
+  function jvSectorAt(frac) {
+    var f = Math.max(0, Math.min(1, frac)) * (JV_SECTORS - 1);
+    var i0 = Math.floor(f), i1 = Math.min(JV_SECTORS - 1, i0 + 1);
+    return jvEnv[i0] + (jvEnv[i1] - jvEnv[i0]) * (f - i0);
+  }
+
+  // ===================================================================
+  // Palette — sampled from the three reference renders.
+  var GOLD_HOT = [255, 240, 180];    // core highlight, near-white
+  var GOLD_MAIN = [255, 200, 60];    // #FFC83C body
+  var GOLD_DEEP = [255, 150, 20];    // #FF9614 outer falloff
+  var GOLD_DUST = [255, 190, 90];    // mote tint
+  var CYAN_MAIN = [0, 229, 255];     // #00E5FF right half
+  var YELLOW_MAIN = [255, 214, 0];   // #FFD600 left half
+  var CYAN_GLOW = [130, 245, 255];
+  var PINK_MAIN = [255, 64, 129];    // #FF4081
+  var PINK_HOT = [255, 158, 196];
+  var ORANGE_MAIN = [255, 150, 40];  // #FF9628 transition zone
+
+  // ===================================================================
+  // SKIN A: 金色光核 — the in-helmet diagnostic HUD from the films.
+  // A hot gold core wrapped in nested machined ellipses, crossed by long
+  // latitude tracks, with a warm off-centre bloom in the frame.
+  //
+  // What the reference actually shows (and a generic "glowing ring" gets
+  // wrong) is a CAGE, not a halo: concentric ellipses much wider than tall,
+  // alternating rotation directions, tick marks riding the innermost ring,
+  // and full-width horizontal tracks that pass behind the core.
+  // ===================================================================
+
+  // ===================================================================
+  // SKIN A: 金色光核 — modelled on measured pixel data from the film frame
+  // (C:\...\jarvis-ref.jpg), not on a mental image of "sci-fi HUD".
+  //
+  // Measurements that drove every number below:
+  //   * subject centre sits at x≈0.46 of the frame, NOT centred
+  //   * subject is a near-circular volume spanning ~30-70% of the height,
+  //     widest at mid-height (75% of frame width) -- a CAGE, not a flat disc
+  //   * dominant hue 29 deg (orange-gold), mean bright pixel #B5834E,
+  //     hottest pixel #FAE5A9 (warm white, only 0.2% of pixels)
+  //   * luminance histogram: 24% near-black, 30% in the 32-63 band ->
+  //     a large amount of low-contrast texture, not empty black
+  //   * horizontal scan found NO full-width straight lines; the earlier
+  //     "latitude tracks" were invented and are removed
+  //   * texture energy in the subject (adjacent-pixel delta 10.1) is 2.5x the
+  //     background (4.0) -> dense wireframe/contour fill inside the volume
+  // ===================================================================
+  var HUD_HUE = [181, 131, 78];      // #B5834E  mean of bright pixels
+  var HUD_HOT = [250, 229, 169];     // #FAE5A9  brightest 1%
+  var HUD_MID = [107, 74, 40];       // #6B4A28  mid-band average (brightest zone)
+  var HUD_DIM = [78, 63, 44];        // #4E3F2C  upper/lower zone average
+  var HUD_DARK = [42, 32, 22];       // deep shadow, still warm
+
+// ===================================================================
+  // SKIN A: 金色光核 — a VOLUMETRIC HOLOGRAM, not a drawn ring chart.
+  //
+  // Why the previous version looked like a picture: it drew 9 closed
+  // elliptical strokes and 11 meridian curves. Every measurement of the
+  // reference frame says otherwise:
+  //   * horizontal run-length of bright pixels: median 4px, 33% are 1-2px
+  //     -> the subject is built from POINTS and short dashes, not curves
+  //   * bright-pixel spread: x sigma 0.20, y sigma 0.24 of the frame
+  //     -> light is distributed through a volume, not along a few lines
+  //   * thin-line colour #C69668 at saturation 0.27, background #14160F
+  //     -> desaturated warm sand, not vivid #FFD700
+  //
+  // So this implementation builds an actual point cloud on a sphere, spins
+  // it in 3D, projects with perspective, and composites with 'lighter'
+  // (additive) blending so overlapping motes accumulate into glow. Depth is
+  // expressed three ways: size, brightness, and draw order (back shell ->
+  // medium -> front shell), which is what makes a hologram read as 3D.
+  // ===================================================================
+  var HUD_SAND = [198, 150, 104];    // #C69668 measured mean of thin lines
+  var HUD_PALE = [248, 212, 163];    // #F8D4A3 measured brightest 5%
+  var HUD_EMBER = [120, 78, 42];     // dim falloff, still warm
+  var HUD_VOID = [20, 22, 15];       // #14160F measured background (green-leaning)
+
+  var orb = null;          // { pts:[{x,y,z,r,ph}], spin, scanned }
+
+  function jvInitOrb() {
+    if (orb) return orb;
+    var N = 600;
+    var pts = [];
+    // Fibonacci sphere: even coverage without clustering at the poles.
+    var ga = Math.PI * (3 - Math.sqrt(5));
+    for (var i = 0; i < N; i++) {
+      var y = 1 - (i / (N - 1)) * 2;
+      var rad = Math.sqrt(Math.max(0, 1 - y * y));
+      var th = ga * i;
+      pts.push({
+        x: Math.cos(th) * rad,
+        y: y,
+        z: Math.sin(th) * rad,
+        // per-mote phase so twinkle is not synchronised
+        ph: (i * 0.6180339887) % 1,
+        // a few motes sit slightly off the shell -> thickness
+        r: 0.94 + ((i * 0.7548776662) % 1) * 0.12,
+      });
+    }
+    orb = { pts: pts, spin: 0 };
+    return orb;
+  }
+
+  // Rotate + perspective-project one point. Returns screen pos, depth factor.
+  function jvProject(p, spin, cx, cy, R) {
+    var ct = Math.cos(spin), st = Math.sin(spin);
+    // yaw about Y
+    var x1 = p.x * ct + p.z * st;
+    var z1 = -p.x * st + p.z * ct;
+    // slight pitch so the pole is not dead-on (reads more 3D)
+    var pt = 0.20, cp = Math.cos(pt), sp = Math.sin(pt);
+    var y2 = p.y * cp - z1 * sp;
+    var z2 = p.y * sp + z1 * cp;
+    // perspective: nearer (z2 > 0) is bigger
+    var persp = 1 / (1 - z2 * 0.28);
+    return {
+      sx: cx + x1 * R * p.r * persp,
+      sy: cy + y2 * R * p.r * persp,
+      z: z2,                     // -1..1
+      scale: persp,              // 0.78..1.4
+    };
+  }
+
+  function drawJarvis(data, t) {
+    if (!cctx) return;
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w < 8 || h < 8) return;
+    var lk = look(), G = geom(w, h);
+    lastFreq = data;
+    cctx.clearRect(0, 0, w, h);
+    var A = lk.o;
+
+    jvEnv = jvEnvelope(data, jvEnv);
+    var rms = 0;
+    for (var i = 0; i < JV_SECTORS; i++) rms += jvEnv[i];
+    rms /= JV_SECTORS;
+    jvRms += (rms - jvRms) * 0.16;
+    if (jvFlash > 0) jvFlash = Math.max(0, jvFlash - 0.03);
+    var loud = jvRms;
+
+    var O = jvInitOrb();
+    // 8 deg/sec spin, plus a slow sway so it never looks like a spinning asset
+    O.spin += 0.0085;
+    var spin = O.spin + Math.sin(t * 0.23) * 0.06;
+
+    // ---- anchor + size: measured centre x=0.46, radius ~0.20 of frame h ----
+    var cx = w * 0.46 + (G.cx - w / 2);
+    var cy = G.cy;
+    var R = h * 0.19 * G.s * (1 + loud * 0.10);
+
+    // ============ 0. cavity ============
+    // Measured background is #14160F (green-leaning near-black), and it is
+    // NOT uniform: the ball sits in a darker cavity so the motes can pop.
+    var cav = cctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.4);
+    cav.addColorStop(0, rgba(HUD_VOID, 0.92 * A));
+    cav.addColorStop(0.55, rgba(HUD_VOID, 0.72 * A));
+    cav.addColorStop(1, rgba(HUD_VOID, 0));
+    cctx.fillStyle = cav;
+    cctx.beginPath();
+    cctx.arc(cx, cy, R * 2.4, 0, Math.PI * 2);
+    cctx.fill();
+
+    // Everything below composites additively: overlapping motes brighten each
+    // other, which is how light behaves and how the reference reads.
+    cctx.save();
+    cctx.globalCompositeOperation = 'lighter';
+
+    // ============ 1. inner medium ============
+    // A soft plasma core so the interior is not empty. Kept low so the motes
+    // remain the visible structure.
+    var mg = cctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.92);
+    mg.addColorStop(0, rgba(HUD_PALE, (0.13 + loud * 0.16) * A));
+    mg.addColorStop(0.34, rgba(HUD_SAND, (0.055 + loud * 0.08) * A));
+    mg.addColorStop(1, rgba(HUD_EMBER, 0));
+    cctx.fillStyle = mg;
+    cctx.beginPath();
+    cctx.arc(cx, cy, R * 0.92, 0, Math.PI * 2);
+    cctx.fill();
+
+    // ============ 2. the point cloud, back-to-front ============
+    // Sort matters: painting far motes first lets near motes accumulate on top
+    // via 'lighter'. 600 points sorted per frame is ~0.1ms; the visual gain
+    // over unsorted is large.
+    var pts = O.pts;
+    var proj = new Array(pts.length);
+    for (var p = 0; p < pts.length; p++) {
+      proj[p] = jvProject(pts[p], spin, cx, cy, R);
+      proj[p].i = p;
+    }
+    proj.sort(function (a, b) { return a.z - b.z; });
+
+    // Audio drives BRIGHTNESS only -- geometry stays rigid, so it reads as a
+    // solid hologram being energised rather than a jelly that wobbles.
+    var energy = 0.35 + loud * 0.95 + jvFlash * 0.5;
+
+    for (var k = 0; k < proj.length; k++) {
+      var q = proj[k];
+      var src = pts[q.i];
+      // depth: back motes faint (occluded by medium), front motes crisp
+      var depth = (q.z + 1) * 0.5;                 // 0 = back, 1 = front
+      var depthA = 0.16 + depth * depth * 0.84;
+      // twinkle, desynchronised per mote
+      var tw = 0.55 + 0.45 * Math.sin(t * (1.4 + src.ph * 2.6) + src.ph * 12.6);
+      // motes facing the viewer near the silhouette rim catch more light
+      var rim = Math.pow(1 - Math.abs(q.z), 1.6) * 0.35;
+      var alpha = (depthA * (0.30 + tw * 0.45) + rim) * energy * A * 0.9;
+      if (alpha < 0.012) continue;
+      var sz = (0.55 + depth * 0.95) * q.scale;
+      // Colour: near-white at the front, sand through the middle, ember at
+      // the back -- the same depth ramp the measurements show.
+      var col = depth > 0.72 ? HUD_PALE
+              : depth > 0.38 ? HUD_SAND : HUD_EMBER;
+      cctx.fillStyle = rgba(col, Math.min(1, alpha));
+      // fillRect instead of arc: at these radii (sub-2px) a square mote is
+      // indistinguishable from a round one, and 600 arcs/frame costs ~3x the
+      // 600 rects. Battery beats a shape nobody can resolve.
+      cctx.fillRect(q.sx - sz * 0.8, q.sy - sz * 0.8, sz * 1.6, sz * 1.6);
+    }
+
+    // ============ 3. cross-section contour rings ============
+    // Three thin belt rings at different latitudes. These are the ONLY closed
+    // curves in the reference (run-length max 145px), and they are confined to
+    // the ball -- never spanning the composer.
+    for (var bi = 0; bi < 3; bi++) {
+      var latv = -0.45 + bi * 0.45;
+      var ringR = Math.sqrt(Math.max(0, 1 - latv * latv)) * R;
+      var ringY = latv * R * Math.cos(0.20);
+      cctx.beginPath();
+      for (var a3 = 0; a3 <= 72; a3++) {
+        var th3 = (a3 / 72) * Math.PI * 2 + spin * 0.6;
+        // project the circle: x scales by cos(theta) seen edge-on
+        var x3 = cx + Math.cos(th3) * ringR;
+        var y3 = ringY + Math.sin(th3) * ringR * 0.26 + cy;
+        if (a3 === 0) cctx.moveTo(x3, y3); else cctx.lineTo(x3, y3);
+      }
+      var ringA = (0.075 + loud * 0.10) * A;
+      cctx.strokeStyle = rgba(HUD_SAND, ringA);
+      cctx.lineWidth = 0.9;
+      cctx.stroke();
+    }
+
+    // ============ 4. hot core ============
+    var coreR = R * (0.09 + loud * 0.05);
+    var cg2 = cctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 5.5);
+    cg2.addColorStop(0, rgba([255, 250, 238], (0.80 + loud * 0.20) * A));
+    cg2.addColorStop(0.16, rgba(HUD_PALE, 0.52 * A));
+    cg2.addColorStop(0.48, rgba(HUD_SAND, 0.16 * A));
+    cg2.addColorStop(1, rgba(HUD_EMBER, 0));
+    cctx.fillStyle = cg2;
+    cctx.beginPath();
+    cctx.arc(cx, cy, coreR * 5.5, 0, Math.PI * 2);
+    cctx.fill();
+
+    // ============ 5. scanning plane ============
+    // A thin luminous sheet sweeping vertically through the ball. This is the
+    // single strongest "instrument" cue and it is what makes the hologram read
+    // as being actively sampled rather than merely displayed.
+    var scanPh = (t * 0.28) % 1;
+    var scanY = cy - R * 1.02 + scanPh * R * 2.04;
+    var scanR = Math.sqrt(Math.max(0, 1 - Math.pow((scanY - cy) / R, 2))) * R;
+    if (scanR > 2) {
+      var sg2 = cctx.createLinearGradient(0, scanY - R * 0.10, 0, scanY + R * 0.10);
+      sg2.addColorStop(0, rgba(HUD_PALE, 0));
+      sg2.addColorStop(0.5, rgba(HUD_PALE, (0.20 + loud * 0.14) * A));
+      sg2.addColorStop(1, rgba(HUD_PALE, 0));
+      cctx.fillStyle = sg2;
+      cctx.beginPath();
+      cctx.ellipse ? cctx.ellipse(cx, scanY, scanR, R * 0.045, 0, 0, Math.PI * 2)
+                   : cctx.arc(cx, scanY, scanR, 0, Math.PI * 2);
+      cctx.fill();
+      // bright leading edge
+      cctx.beginPath();
+      cctx.ellipse ? cctx.ellipse(cx, scanY, scanR, R * 0.045, 0, 0, Math.PI * 2)
+                   : cctx.arc(cx, scanY, scanR, 0, Math.PI * 2);
+      cctx.strokeStyle = rgba(HUD_PALE, 0.45 * A);
+      cctx.lineWidth = 0.8;
+      cctx.stroke();
+    }
+
+    // ============ 6. drifting motes outside the shell ============
+    // A handful of sparks escaping the sphere: the volume leaks energy.
+    var spN = 26;
+    for (var si = 0; si < spN; si++) {
+      var sd = si * 0.6180339887;
+      var life = (t * (0.16 + sd * 0.22) + sd) % 1;
+      var ang4 = sd * Math.PI * 2;
+      var outR = R * (1.02 + life * 0.9);
+      var sx2 = cx + Math.cos(ang4) * outR;
+      var sy2 = cy + Math.sin(ang4) * outR * 0.86;
+      var fade = (1 - life) * (1 - life);
+      cctx.fillStyle = rgba(sd > 0.5 ? HUD_PALE : HUD_SAND, fade * (0.22 + loud * 0.30) * A);
+      cctx.beginPath();
+      cctx.arc(sx2, sy2, 0.7 + (1 - life) * 0.9, 0, Math.PI * 2);
+      cctx.fill();
+    }
+
+    cctx.restore();   // back to source-over
+
+    // ============ 7. grain ============
+    // Measured background has adjacent-pixel delta 4.0; pure flat black would
+    // look sterile and cheap next to it.
+    var specks = 200;
+    for (var gi = 0; gi < specks; gi++) {
+      var gs = gi * 0.6180339887;
+      var gx = ((gs * 7.31) % 1) * w;
+      var gy = ((gs * 13.77) % 1) * h;
+      cctx.fillStyle = rgba(HUD_SAND, (0.30 + ((gs * 3.11) % 1) * 0.5) * 0.10 * A);
+      cctx.fillRect(gx, gy, 1, 1);
+    }
+  }
+
+  function roundRect(g, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    g.moveTo(x + r, y);
+    g.lineTo(x + w - r, y);
+    g.arcTo(x + w, y, x + w, y + r, r);
+    g.lineTo(x + w, y + h - r);
+    g.arcTo(x + w, y + h, x + w - r, y + h, r);
+    g.lineTo(x + r, y + h);
+    g.arcTo(x, y + h, x, y + h - r, r);
+    g.lineTo(x, y + r);
+    g.arcTo(x, y, x + r, y, r);
+  }
+
+  // ===================================================================
+  // SKIN B: 横向频谱 — forty thin rounded bars on black, mirrored about the
+  // midline, gold on the left grading to cyan on the right.
+  //
+  // The reference is almost minimal: no axis, no frame, no glow halo per bar.
+  // Bars are hairlines with rounded caps; brightness comes from saturation,
+  // not from bloom. Getting this right means resisting the urge to add.
+  // ===================================================================
+  var barPeaks = null;
+
+  function drawBars(data, t) {
+    if (!cctx) return;
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w < 8 || h < 8) return;
+    var lk = look(), G = geom(w, h);
+    lastFreq = data;
+    cctx.clearRect(0, 0, w, h);
+    var A = lk.o;
+
+    jvEnv = jvEnvelope(data, jvEnv);
+    var rms = 0;
+    for (var i = 0; i < JV_SECTORS; i++) rms += jvEnv[i];
+    rms /= JV_SECTORS;
+    jvRms += (rms - jvRms) * 0.16;
+    if (jvFlash > 0) jvFlash = Math.max(0, jvFlash - 0.03);
+
+    var N = 40;
+    if (!barPeaks || barPeaks.length !== N) barPeaks = new Float32Array(N);
+
+    var cy = G.cy;
+    var maxHalf = h * 0.40 * G.s;           // half the tallest bar
+    var spanW = w * 0.90 * G.s;             // bars occupy 90% of the width, scalable
+    var x0 = (w - spanW) / 2 + (G.cx - w / 2);
+    var pitch = spanW / N;
+    var barW = Math.max(2.2, pitch * 0.34); // thin but not hairline
+
+    // overall swell: the whole array leans into a volume jump
+    var hop = jvFlash * 2.5;
+
+    for (var b = 0; b < N; b++) {
+      var frac = N === 1 ? 0 : b / (N - 1);
+      var v = jvSectorAt(frac);
+
+      // ballistics: snap up, ease down
+      var target = v * maxHalf;
+      var cur = barPeaks[b];
+      barPeaks[b] = cur + (target - cur) * (target > cur ? 0.45 : 0.11);
+      var half = Math.max(1.6, barPeaks[b]) + hop;
+
+      // colour: gold -> warm -> cyan, with a soft mid transition
+      var col;
+      if (frac < 0.40) col = mix(YELLOW_MAIN, [255, 236, 120], frac / 0.40 * 0.55);
+      else if (frac < 0.52) col = mix(YELLOW_MAIN, CYAN_MAIN, (frac - 0.40) / 0.12);
+      else col = mix(CYAN_MAIN, [150, 250, 255], (frac - 0.52) / 0.48 * 0.45);
+
+      var x = x0 + b * pitch + (pitch - barW) / 2;
+
+      // single soft halo pass (very low alpha, wide) -- not per-bar bloom
+      cctx.fillStyle = rgba(col, (0.06 + v * 0.10) * A);
+      cctx.fillRect(x - barW * 0.9, cy - half - 3, barW * 2.8, (half + 3) * 2);
+
+      // the bar itself, mirrored
+      cctx.fillStyle = rgba(col, (0.75 + v * 0.25) * A);
+      cctx.fillRect(x, cy - half, barW, half * 2);
+
+      // rounded caps: two small circles, subtle but essential for the look
+      cctx.beginPath();
+      cctx.arc(x + barW / 2, cy - half, barW / 2, 0, Math.PI * 2);
+      cctx.arc(x + barW / 2, cy + half, barW / 2, 0, Math.PI * 2);
+      cctx.fillStyle = rgba(col, (0.85 + v * 0.15) * A);
+      cctx.fill();
+    }
+
+    // frame line, same as skin A
+    cctx.beginPath();
+    roundRect(cctx, 0.5, 0.5, w - 1, h - 1, Math.min(h, w) * 0.10);
+    cctx.strokeStyle = rgba([120, 120, 130], 0.28 * A);
+    cctx.lineWidth = 1;
+    cctx.stroke();
+  }
+
+  // ===================================================================
+  // SKIN C: 心跳波形 — a sharp jagged trace, pink on the left grading to
+  // gold, throwing sparks. Reference shows a SPLINE with hard corners, not a
+  // sine: peaks are pointed, valleys are pointed, and the whole thing is
+  // surrounded by a debris field of short bright dashes.
+  // ===================================================================
+  var sparkDust = [];
+
+  function drawPulse(data, t) {
+    if (!cctx) return;
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w < 8 || h < 8) return;
+    var lk = look(), G = geom(w, h);
+    lastFreq = data;
+    cctx.clearRect(0, 0, w, h);
+    var A = lk.o;
+    var cy = G.cy;
+
+    jvEnv = jvEnvelope(data, jvEnv);
+    var rms = 0;
+    for (var i = 0; i < JV_SECTORS; i++) rms += jvEnv[i];
+    rms /= JV_SECTORS;
+    jvRms += (rms - jvRms) * 0.16;
+    if (jvFlash > 0) jvFlash = Math.max(0, jvFlash - 0.03);
+    var loud = jvRms;
+
+    var nPts = Math.max(48, Math.min(120, Math.floor(w / 9)));
+    var spanW = w * 0.92 * G.s;
+    var x0 = (w - spanW) / 2 + (G.cx - w / 2);
+    var ampMax = h * 0.34 * G.s;
+
+    // ---- build a JAGGED trace ----
+    // Tap the envelope at irregular-looking but deterministic intervals and
+    // alternate sign, so consecutive peaks stay pointed. A smoothed sine is
+    // exactly what we do NOT want here.
+    var ys = new Float32Array(nPts);
+    for (var p = 0; p < nPts; p++) {
+      var u = p / (nPts - 1);
+      var taper = Math.sin(Math.PI * u);            // fade in/out at edges
+      var band = jvSectorAt(Math.abs(u - 0.5) * 1.4); // mirrored spectrum
+      // base jaggedness from a fast pseudo-random walk keyed on index+time
+      var jit = Math.sin(p * 3.7 + t * 1.5) * 0.55
+              + Math.sin(p * 9.1 - t * 2.3) * 0.30
+              + Math.sin(p * 1.9 + t * 0.7) * 0.45;
+      var sign = (p % 2 === 0) ? 1 : -1;
+      var amp = (0.30 + band * 0.95) * (0.55 + loud * 1.25);
+      ys[p] = cy + sign * Math.abs(jit) * amp * ampMax * taper;
+    }
+    // anchor the ends to the midline (the reference trace starts and ends flat)
+    ys[0] = cy; ys[nPts - 1] = cy;
+
+    // ---- gradient: pink -> orange -> gold across the width ----
+    var lg = cctx.createLinearGradient(x0, 0, x0 + spanW, 0);
+    lg.addColorStop(0, rgba(PINK_MAIN, 0.95 * A));
+    lg.addColorStop(0.30, rgba(PINK_MAIN, 0.90 * A));
+    lg.addColorStop(0.52, rgba(ORANGE_MAIN, 0.92 * A));
+    lg.addColorStop(0.75, rgba(YELLOW_MAIN, 0.95 * A));
+    lg.addColorStop(1, rgba([255, 240, 160], 0.95 * A));
+
+    var X = function (idx) { return x0 + (idx / (nPts - 1)) * spanW; };
+
+    cctx.lineJoin = 'round';
+    cctx.lineCap = 'round';
+
+    // wide glow
+    cctx.beginPath();
+    for (var g = 0; g < nPts; g++) {
+      if (g === 0) cctx.moveTo(X(g), ys[g]); else cctx.lineTo(X(g), ys[g]);
+    }
+    cctx.strokeStyle = lg;
+    cctx.globalAlpha = 0.20 * A;
+    cctx.lineWidth = 9;
+    cctx.stroke();
+    cctx.globalAlpha = 0.38 * A;
+    cctx.lineWidth = 4.5;
+    cctx.stroke();
+    cctx.globalAlpha = 1;
+
+    // main stroke
+    cctx.strokeStyle = lg;
+    cctx.lineWidth = 1.9;
+    cctx.stroke();
+
+    // white-hot inner filament
+    cctx.strokeStyle = rgba([255, 255, 255], 0.55 * A);
+    cctx.lineWidth = 0.9;
+    cctx.stroke();
+
+    // ---- echo traces (fainter copies offset vertically: motion blur feel) ----
+    for (var e = 1; e <= 2; e++) {
+      cctx.beginPath();
+      for (var k = 0; k < nPts; k++) {
+        var uy = ys[k] + (k % 2 === 0 ? 1 : -1) * e * 2.2;
+        if (k === 0) cctx.moveTo(X(k), uy); else cctx.lineTo(X(k), uy);
+      }
+      cctx.strokeStyle = rgba(e === 1 ? PINK_MAIN : YELLOW_MAIN, (0.10 - e * 0.03) * A);
+      cctx.lineWidth = 1.1;
+      cctx.stroke();
+    }
+
+    // ---- spark debris field ----
+    // Two kinds, matching the reference: tiny round motes and short bright
+    // dashes with random angles. Both spawn near the trace and drift outward.
+    var wantSparks = Math.round(6 + loud * 26 + jvFlash * 14);
+    while (sparkDust.length < wantSparks) {
+      var si = 1 + Math.floor(Math.random() * (nPts - 2));
+      var sx = X(si), sy = ys[si];
+      var ang = Math.random() * Math.PI * 2;
+      var spd = 12 + Math.random() * 85 * (0.4 + loud);
+      var isDash = Math.random() < 0.45;
+      sparkDust.push({
+        x: sx, y: sy,
+        vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 22,
+        life: 0.35 + Math.random() * 0.75, maxLife: 1,
+        len: isDash ? 3 + Math.random() * 9 : 0,
+        ang: ang, size: isDash ? 0.9 : 0.6 + Math.random() * 1.6,
+        gold: Math.random() < (0.30 + (si / nPts) * 0.6),
+      });
+      sparkDust[sparkDust.length - 1].maxLife = sparkDust[sparkDust.length - 1].life;
+    }
+    var dt = 1 / 60;
+    for (var s = sparkDust.length - 1; s >= 0; s--) {
+      var sp = sparkDust[s];
+      sp.life -= dt;
+      if (sp.life <= 0) { sparkDust.splice(s, 1); continue; }
+      sp.x += sp.vx * dt;
+      sp.y += sp.vy * dt;
+      sp.vy += 150 * dt;
+      sp.vx *= 0.985;
+      var f = sp.life / sp.maxLife;
+      var col2 = sp.gold ? YELLOW_MAIN : PINK_MAIN;
+      if (sp.len > 0) {
+        // dash: a short line along its travel direction
+        cctx.beginPath();
+        cctx.moveTo(sp.x, sp.y);
+        cctx.lineTo(sp.x - Math.cos(sp.ang) * sp.len * f, sp.y - Math.sin(sp.ang) * sp.len * f);
+        cctx.strokeStyle = rgba(col2, f * 0.85 * A);
+        cctx.lineWidth = sp.size;
+        cctx.stroke();
+      } else {
+        cctx.beginPath();
+        cctx.arc(sp.x, sp.y, sp.size * (0.5 + f * 0.7), 0, Math.PI * 2);
+        cctx.fillStyle = rgba(col2, f * f * 0.9 * A);
+        cctx.fill();
+      }
+    }
+
+    // frame line
+    cctx.beginPath();
+    roundRect(cctx, 0.5, 0.5, w - 1, h - 1, Math.min(h, w) * 0.10);
+    cctx.strokeStyle = rgba([120, 120, 130], 0.26 * A);
+    cctx.lineWidth = 1;
+    cctx.stroke();
+  }
+
   // ---- settings menu ----
   function closeMenu() {
     if (menu) { menu.remove(); menu = null; }
@@ -992,9 +1710,10 @@
         saveConfig({ device: v }).then(function () { notify('输入设备已切换（下次录音生效）'); });
       }));
       localOnly.appendChild(rowSelect('录音动效', [
-        ['default', '默认电平条'], ['wave', '输入框声波'], ['halo', '麦克风声纹环'],
+        ['jarvis', '金色光核 ✦'], ['bars', '横向频谱 ✦'], ['pulse', '心跳波形 ✦'],
+        ['wave', '输入框声波'], ['halo', '麦克风声纹环'],
       ].map(function (x) { return '<option value="' + x[0] + '">' + x[1] + '</option>'; }).join(''), cfg.skin, null, function (v) {
-        saveConfig({ skin: v }).then(function () { notify('皮肤已切换：' + ({ default: '电平条', wave: '声波', halo: '声纹环' }[v] || v)); });
+        saveConfig({ skin: v }).then(function () { notify('皮肤已切换:' + ({ jarvis: '金色光核', bars: '横向频谱', pulse: '心跳波形', wave: '声波', halo: '声纹环' }[v] || v)); });
       }));
       localOnly.appendChild(rowHotkey());
       localOnly.appendChild(rowSelect('空闲自动退出', [[5, '5 分钟'], [10, '10 分钟'], [30, '30 分钟']]

@@ -873,6 +873,15 @@ def main():
                    "opacity", "tail")))
         check("voice: accent defaults are null (follow, not baked)",
               "accent: null" in vcjs_src and "accent2: null" in vcjs_src)
+        # 'default' was retired when the fused HUD landed. If the manager still
+        # ships it as the default, a fresh install paints the halo fallback
+        # until the user opens the menu and re-picks a skin.
+        check("voice: manager default skin is a live one, not the retired 'default'",
+              "skin: 'jarvis'" in vcjs_src and "skin: 'default'" not in vcjs_src)
+        check("voice: the three Jarvis-family skins are selectable",
+              all(k in vhtml for k in ("drawJarvis", "drawBars", "drawPulse")))
+        check("voice: an unknown skin still paints something (halo fallback)",
+              vhtml.count("else if (cctx) drawHalo") >= 1)
         check("voice: main import line present",
               vmain.count(b'voice-main.cjs")') == 1)
         check("voice: import points at temp runtime",

@@ -52,7 +52,7 @@ const DEFAULTS = {
   autoStart: false,      // start sidecar when ZCode boots (default: lazy)
   idleMin: 10,           // sidecar idle auto-exit minutes
   hotkey: 'Ctrl+Shift+Space',
-  skin: 'default',       // default | wave | halo
+  skin: 'jarvis',        // jarvis | bars | pulse | wave | halo ('default' retired)
   device: '',            // microphone deviceId ('' = system default)
   // look: null means "follow the skin-manager theme", and when that module
   // is not installed the renderer falls back to its built-in cyan/violet.

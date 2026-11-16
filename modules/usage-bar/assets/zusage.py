@@ -5,6 +5,7 @@
 也可被 usage_mcp.py import 为查询库。
 """
 import json
+import os
 import re
 import shlex
 import sqlite3
@@ -457,24 +458,59 @@ def render_workspace(con, pattern, top=15):
 
 # ---------- 机器可读快照（悬浮条数据源） ----------
 
-CATALOG_PATH = Path(r"D:\ZCode\resources\model-providers\models_catalog_china_llm_zcode_2026-06-03.json")
+# The model catalog ships inside the ZCode install (resources/model-providers).
+# Its filename carries a build date, so it is discovered at runtime instead of
+# being pinned: a hardcoded path both breaks every other machine and goes stale
+# on the next catalog refresh. Absent catalog just means no context-window hint.
+def _catalog_candidates():
+    roots = []
+    env = os.environ.get("ZCODE_ROOT")
+    if env:
+        roots.append(Path(env))
+    here = Path(sys.executable).resolve()
+    for up in (here.parent, here.parent.parent):
+        roots.append(up)
+    roots += [Path(r"H:\Zcode"), Path(r"D:\ZCode"),
+              Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "ZCode"]
+    seen, out = set(), []
+    for r in roots:
+        if not str(r):
+            continue
+        d = r / "resources" / "model-providers"
+        if d.is_dir() and str(d) not in seen:
+            seen.add(str(d))
+            out.extend(sorted(d.glob("*catalog*.json"), reverse=True))
+    return out
 
 
+def _load_catalog():
+    for p in _catalog_candidates():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+    return None
+
+
+_CATALOG = None
+_CATALOG_READ = False
 _CTX_WINDOW_CACHE = {}
 
 
 def lookup_context_window(model_id):
     """按模型 id 在客户端自带模型目录里查 contextWindow；查不到返回 None。带缓存。"""
+    global _CATALOG, _CATALOG_READ
     want = (model_id or "").strip().lower()
     if not want:
         return None
     if want in _CTX_WINDOW_CACHE:
         return _CTX_WINDOW_CACHE[want]
-    result = None
-    try:
-        cat = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
-    except Exception:
+    if not _CATALOG_READ:
+        _CATALOG, _CATALOG_READ = _load_catalog(), True
+    cat = _CATALOG
+    if not cat:
         return None
+    result = None
     for p in cat.get("providers", []):
         for m in p.get("models", []):
             if str(m.get("id", "")).lower() == want:

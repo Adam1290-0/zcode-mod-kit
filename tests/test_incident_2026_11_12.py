@@ -34,9 +34,31 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MODS = ROOT / "modules"
-FIXTURES = Path(os.environ.get("ZCODE_3180_REF", r"G:\工作\测试\asar_3.18.0_ref"))
-CJS_BAK = Path(os.environ.get(
-    "ZCODE_CJS", r"H:\Zcode\resources\glm\zcode.cjs.kitbak"))
+
+
+def _find_zcode_root():
+    """Locate the ZCode install the same way modkit does, so these tests work on
+    any machine without an env var. Returns None when ZCode is not installed."""
+    env = os.environ.get("ZCODE_ROOT")
+    cands = [Path(env)] if env else []
+    cands += [Path(r"H:\Zcode"), Path(r"D:\ZCode"),
+              Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "ZCode",
+              Path(os.environ.get("PROGRAMFILES", "")) / "ZCode"]
+    for c in cands:
+        if str(c) and (c / "resources" / "app.asar").is_file():
+            return c
+    return None
+
+
+_ZROOT = _find_zcode_root()
+# Optional: an extracted reference tree from another ZCode version (only used
+# by the renderer-fixture branch of the boot test).
+FIXTURES = Path(os.environ.get("ZCODE_3180_REF",
+                               str(ROOT / ".upgrade-check-ref")))
+# Prefer an explicit override, then the local pristine baseline, then nothing.
+CJS_BAK = Path(os.environ.get("ZCODE_CJS") or
+               ((_ZROOT / "resources" / "glm" / "zcode.cjs.kitbak")
+                if _ZROOT else Path("__no_zcode__")))
 
 passed = failed = 0
 
@@ -147,11 +169,56 @@ def test_schema_alias_resolution():
 
 
 def _zcode_exe():
-    for p in (Path(r"H:\Zcode\ZCode.exe"),
-              Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/ZCode/ZCode.exe"):
-        if p.is_file():
-            return p
+    if _ZROOT is not None:
+        exe = _ZROOT / "ZCode.exe"
+        if exe.is_file():
+            return exe
     return None
+
+
+def _extract_renderer_refs(dest):
+    """Pull out/renderer/index.html + every assets/*.js out of the local
+    app.asar by reading the index, so tests need no staged fixture tree.
+    Returns None when ZCode is absent (the caller then skips the renderer
+    half rather than failing)."""
+    if _ZROOT is None:
+        return None
+    asar = _ZROOT / "resources" / "app.asar"
+    if not asar.is_file():
+        return None
+    import struct
+    try:
+        with open(asar, "rb") as f:
+            f.seek(4)
+            jl = struct.unpack("<I", f.read(4))[0]
+            hdr = f.read(jl).decode("utf-8", "replace")
+        pkg = json.loads(hdr[hdr.find("{"):].rstrip("\0"))
+        base = 8 + jl
+        base += (4 - (base % 4)) % 4
+        root = dest / "_refs"
+        (root / "out" / "renderer" / "assets").mkdir(parents=True, exist_ok=True)
+
+        def grab(node, parts, out_path):
+            for name, e in node.get("files", {}).items():
+                p = parts + [name]
+                if "files" in e:
+                    grab(e, p, out_path)
+                elif "offset" in e:
+                    with open(asar, "rb") as f:
+                        f.seek(base + int(e["offset"]))
+                        data = f.read(int(e["size"]))
+                    tgt = out_path.joinpath(*p)
+                    tgt.parent.mkdir(parents=True, exist_ok=True)
+                    tgt.write_bytes(data)
+
+        rend = pkg.get("files", {}).get("out", {}).get("files", {}).get(
+            "renderer", {}).get("files", {})
+        for key in ("index.html", "assets"):
+            if key in rend:
+                grab({"files": {key: rend[key]}}, [], root / "out" / "renderer")
+        return root
+    except Exception:
+        return None
 
 
 def test_storage_prepare_runs():
@@ -167,10 +234,17 @@ def test_storage_prepare_runs():
         (work / "out" / "renderer").mkdir(parents=True)
         cjs = work / "zcode.cjs"
         shutil.copy(bak, cjs)
-        if FIXTURES.is_dir():
-            shutil.copytree(FIXTURES / "out" / "renderer" / "assets",
+        # The renderer half needs a chunk carrying the edit-resend anchors.
+        # Prefer an explicit reference tree (ZCODE_3180_REF); otherwise pull the
+        # pristine one straight out of the local ZCode install so this test
+        # needs no extra fixture checked in or staged by hand.
+        fixtures = FIXTURES
+        if not (fixtures / "out" / "renderer" / "assets").is_dir():
+            fixtures = _extract_renderer_refs(tmp)
+        if fixtures and (fixtures / "out" / "renderer" / "assets").is_dir():
+            shutil.copytree(fixtures / "out" / "renderer" / "assets",
                             work / "out" / "renderer" / "assets")
-            shutil.copy(FIXTURES / "out" / "renderer" / "index.html",
+            shutil.copy(fixtures / "out" / "renderer" / "index.html",
                         work / "out" / "renderer" / "index.html")
 
         env = dict(os.environ)

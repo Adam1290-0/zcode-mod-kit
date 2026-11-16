@@ -230,7 +230,9 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
   - 共享攻击快 / 释放慢的包络（VU 弹道），96 段对数映射频谱，尺寸跟随输入框真实宽高
 - 🐛 **修录音中途点发送**：此前会先把半截草稿发出去、最终结果再落到输入框。现在拦下点击，等识别完成、文本落进草稿后再发；识别失败会明确告知并取消本次发送，不静默丢弃
 - 🐛 **修状态行定位**：输入框变高（换行、附件、改窗口大小）时状态行会错位。改为逐帧跟随输入框位置
-- 🧪 **293 项测试全绿**（engine 22 + modules 176 + edge 52 + incident 46 + 皮肤 smoke 21）
+- 🐛 **修 usage-bar 写死的模型目录路径**：`zusage.py` 把 catalog 路径固定成某个 `D:\ZCode\...json`，别的机器上不存在（本机 3.18.2 也已没有该目录），上下文窗口提示一直静默降级。改为运行时按 `ZCODE_ROOT` → 可执行文件位置 → 常见安装位置依次查找 `resources/model-providers/*catalog*.json`，找不到就返回 None 由 `context_window` 配置兜底
+- 🐛 **测试可在任意机器跑**：`test_incident_2026_11_12.py` 原本硬编码参考树与 cjs 备份两个本机路径。现在按 `ZCODE_ROOT` 自动定位 ZCode，renderer fixture 直接从本地 `app.asar` 索引读出，没装 ZCode 的机器跳过相关用例而不是报错
+- 🧪 **315 项测试全绿**（engine 22 + modules 176 + edge 52 + incident 44 + 皮肤 smoke 21）
 - 🧪 **真机 3.18.2 端到端**：10 模块注入 → verify 0 → **二次注入幂等** → 卸载 → 6 处写入目标字节级还原
 - 🧪 **真实启动握手**：干净 / 五模块全打 / 还原后三种状态各跑一次真正的 `--prepare-storage` worker，均正常返回 `storagePrepared`，无 `is not defined`
 

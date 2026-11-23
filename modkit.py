@@ -52,6 +52,236 @@ AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
 KIT_VERSION = "2.0.0"
+
+# ---------------------------------------------------------------------------
+# language: Chinese systems get Chinese by default, everything else English.
+# The menu switches live with L and the choice is remembered in config.json.
+# ---------------------------------------------------------------------------
+LANGS = ("zh", "en")
+_lang = "en"
+
+
+def _system_lang():
+    """zh when Windows' UI language is Chinese, else en.
+
+    Order matters. Git Bash on a Chinese Windows sets LANG=C.UTF-8, which is a
+    shell default and says nothing about the user's language - treating it as
+    authoritative made every Chinese machine come out English. So C/POSIX are
+    discarded, a real zh/xx locale is honoured, and Windows' own UI language is
+    the final word.
+    """
+    import locale
+    probe = " ".join(filter(None, (
+        os.environ.get("LC_ALL"), os.environ.get("LANG"),
+        os.environ.get("LANGUAGE")))).strip()
+    low = probe.lower()
+    # Only the C/POSIX pseudo-locales are meaningless (Git Bash defaults to
+    # C.UTF-8). A real "en_US" or "zh_CN" is the user's own choice and wins.
+    if low and not low.startswith(("c.utf-8", "c", "posix")):
+        return "zh" if low.startswith("zh") else "en"
+    if os.name == "nt":
+        try:
+            # 0x0804 = zh-CN, 0x0404 = zh-TW; the low byte is the primary id
+            import ctypes
+            lid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+            if (lid & 0xFF) == 0x04:
+                return "zh"
+            return "en"
+        except Exception:
+            pass
+    try:
+        loc = locale.getlocale()[0] or ""
+    except Exception:
+        loc = ""
+    low = str(loc).lower()
+    if any(k in low for k in ("chinese", "zh_cn", "zh-cn", "zh_tw", "zh-tw")):
+        return "zh"
+    return "en"
+
+
+def set_lang(lang):
+    global _lang
+    _lang = lang if lang in LANGS else "en"
+
+
+def lang():
+    return _lang
+
+
+# Every user-facing string. Format placeholders are kept identical across
+# languages so call sites can stay single-expression.
+T = {
+    "menu.hint1": {
+        "en": "  UP/DOWN pick    LEFT/RIGHT or SPACE toggle    ENTER review & apply",
+        "zh": "  上下键选择    左右键或空格切换    ENTER 确认后执行",
+    },
+    "menu.hint2": {
+        "en": "  A all-on    N all-off    R load last    O sponsor    "
+              "L 中文/English    Q/ESC quit",
+        "zh": "  A 全开    N 全关    R 载入上次    O 赞助    "
+              "L 中文/English    Q/ESC 退出",
+    },
+    "menu.dirty": {
+        "en": "  * selections differ from the last run - press R to go back to it",
+        "zh": "  * 当前勾选与上次运行不同 - 按 R 可恢复上次的选择",
+    },
+    "menu.title": {
+        "en": "  zcode-mod-kit  ::  modular patcher console",
+        "zh": "  zcode-mod-kit  ::  模块化补丁控制台",
+    },
+    "menu.no_saved": {
+        "en": "\n  no saved selection yet - run install.bat once first.\n",
+        "zh": "\n  还没有保存过的选择 - 请先跑一次 install.bat。\n",
+    },
+    "menu.back": {
+        "en": "  press ENTER to go back to the menu ",
+        "zh": "  按 ENTER 返回菜单 ",
+    },
+    "review.title": {"en": "  REVIEW", "zh": "  确认清单"},
+    "review.install": {"en": "  ZCode install : ", "zh": "  ZCode 安装位置 : "},
+    "review.notfound": {"en": "NOT FOUND", "zh": "未找到"},
+    "review.counts": {"en": "  Modules ON    : ", "zh": "  启用模块 : "},
+    "review.off": {"en": "    OFF: ", "zh": "    关闭: "},
+    "review.alloff": {
+        "en": "  Nothing is ON - this will REMOVE every module currently installed.",
+        "zh": "  一个模块都没开 - 这会移除当前已安装的全部模块。",
+    },
+    "review.rewrite": {
+        "en": "  This rewrites app.asar and zcode.cjs. ZCode must be closed.",
+        "zh": "  这会重写 app.asar 与 zcode.cjs，ZCode 必须先完全退出。",
+    },
+    "review.ask": {"en": "  apply this plan? [y/N] ", "zh": "  确认执行？[y/N] "},
+    "summary.ok": {"en": "  ALL SYSTEMS OPERATIONAL  ", "zh": "  全部完成  "},
+    "summary.fail": {"en": "  COMPLETED WITH FAILURES  ", "zh": "  存在失败项  "},
+    "summary.failed_list": {
+        "en": "  These modules did not complete: ",
+        "zh": "  这些模块没有完成: ",
+    },
+    "summary.failed_help": {
+        "en": "  Re-run install.bat and open an issue with the log above.",
+        "zh": "  请重跑 install.bat，并带上上面的日志提 issue。",
+    },
+    "summary.backup_ok": {
+        "en": "  Your previous asar backup is intact: app.asar.kitbak.",
+        "zh": "  上一次的 asar 备份完好: app.asar.kitbak。",
+    },
+    "summary.reinstall": {
+        "en": "  ZCode was updated? Just re-run reinstall.bat -",
+        "zh": "  ZCode 刚更新过？直接重跑 reinstall.bat -",
+    },
+    "summary.reinstall2": {
+        "en": "  it re-applies this exact selection in one shot.",
+        "zh": "  它会按这套选择一次性重打。",
+    },
+    "summary.start": {
+        "en": "  Start ZCode now: the modules load at boot.",
+        "zh": "  现在可以启动 ZCode 了，模块随启动加载。",
+    },
+    "summary.removed": {
+        "en": "  Every selected module was removed; app.asar and",
+        "zh": "  所选模块已全部移除，app.asar 与",
+    },
+    "summary.removed2": {
+        "en": "  zcode.cjs are back to the official bytes.",
+        "zh": "  zcode.cjs 已恢复为官方原始字节。",
+    },
+    "summary.removed3": {
+        "en": "  Want them back? Run install.bat and pick modules again.",
+        "zh": "  想重新装回来？跑 install.bat 重新勾选即可。",
+    },
+    "err.zcode_running": {
+        "en": "  ZCode is running.",
+        "zh": "  ZCode 正在运行。",
+    },
+    "err.zcode_running2": {
+        "en": "  Fully quit it first: right-click the tray icon -> Quit",
+        "zh": "  请先完全退出：右键托盘图标 -> 退出",
+    },
+    "err.zcode_running3": {
+        "en": "  (closing the window is not enough - the process stays).",
+        "zh": "  （只关窗口不够 - 进程还在）。",
+    },
+    "err.after_quit": {
+        "en": "  press ENTER after quitting, or Ctrl+C to abort ",
+        "zh": "  退出后按 ENTER 继续，或 Ctrl+C 中止 ",
+    },
+    "err.still_running": {
+        "en": "  still running - aborting. Nothing was changed.",
+        "zh": "  仍在运行 - 已中止，未做任何修改。",
+    },
+    "byebye": {"en": "BYE. \\o/", "zh": "再见。\\o/"},
+    "splash.done": {
+        "en": "   painting done - the menu opens next.",
+        "zh": "   版式完成 - 接下来进入菜单。",
+    },
+    "splash.winter": {"en": "winter edition", "zh": "冬季版"},
+    "splash.reassure": {
+        "en": "   every module is optional and reversible; nothing is "
+              "written outside",
+        "zh": "   每个模块都可选、可逆；除 ZCode 安装目录与",
+    },
+    "splash.reassure2": {
+        "en": "   your ZCode install and ~/.zcode/plugins.",
+        "zh": "   ~/.zcode/plugins 之外不写任何东西。",
+    },
+    "splash.modules": {"en": "   MODULES", "zh": "   模块"},
+    "splash.loaded": {
+        "en": "  %d loaded  ·  every one optional and reversible",
+        "zh": "  已载入 %d 个  ·  全部可选可逆",
+    },
+    "splash.skip": {"en": "  press any key to skip", "zh": "  按任意键跳过"},
+    "splash.word": {"en": "winter edition", "zh": "冬季版"},
+    # per-module note shown under the menu
+    "hint.route-override": {
+        "en": "cjs chain first, pin wraps outside it",
+        "zh": "先装 cjs 链，pin 包在它外层",
+    },
+    "hint.pin": {
+        "en": "injects after the route-override marker (fallback: use strict)",
+        "zh": "接在 route-override 的标记之后（找不到则退回 use strict）",
+    },
+    "hint.skin-manager": {
+        "en": "renderer-only, order-independent",
+        "zh": "只改渲染层，与顺序无关",
+    },
+    "hint.account-switcher": {
+        "en": "main + renderer, order-independent",
+        "zh": "主进程 + 渲染层，与顺序无关",
+    },
+    "hint.snapshot-kill": {
+        "en": "static gate in out/host/index.js",
+        "zh": "在 out/host/index.js 里加静态闸门",
+    },
+    "hint.usage-bar": {
+        "en": "one import line at the tail of out/main/index.js",
+        "zh": "在 out/main/index.js 尾部加一行 import",
+    },
+    "hint.edit-resend-model-fix": {
+        "en": "makes retry replay the model/mode you have selected now",
+        "zh": "让重试走你当前选中的模型与模式",
+    },
+    "hint.usage-stats-fallback": {
+        "en": "backfills pre-09 usage from the message table",
+        "zh": "从 message 表回填 9 月之前的用量",
+    },
+    "hint.zombie-cleanup": {
+        "en": "shutdown hook runs a powershell sweep for orphaned MCP",
+        "zh": "退出钩子跑 powershell 清理孤儿 MCP 进程",
+    },
+    "hint.voice-input": {
+        "en": "renderer button + main dynamic import (ZCode 3.18+)",
+        "zh": "渲染层按钮 + 主进程动态 import（ZCode 3.18+）",
+    },
+}
+
+
+def t(key, *fmt):
+    """Look up a translated string, falling back to English then the key."""
+    entry = T.get(key)
+    if not entry:
+        return key
+    s = entry.get(_lang) or entry.get("en") or key
+    return s % fmt if fmt else s
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -104,6 +334,48 @@ NO_COLOR = bool(os.environ.get("NO_COLOR"))
 
 def c(code, text):
     return text if NO_COLOR else code + text + RESET
+
+
+def safe_print(*args, **kw):
+    """print() that cannot die on a console whose codepage lacks a glyph.
+
+    install.bat sets chcp 65001, but a user running `python modkit.py` from a
+    plain cmd inherits cp936. Emitting the Chinese UI there raises
+    UnicodeEncodeError mid-menu and kills the installer. Re-encode with
+    'replace' so the worst case is a question mark, not a crash.
+    """
+    text = " ".join(str(a) for a in args)
+    try:
+        print(text, **kw)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        try:
+            print(text.encode(enc, "replace").decode(enc, "replace"), **kw)
+        except Exception:
+            pass
+
+
+def _disp_width(s):
+    """Terminal cell width: CJK / fullwidth glyphs occupy two columns."""
+    import unicodedata
+    w = 0
+    for ch in s:
+        w += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return w
+
+
+def pad_display(s, width):
+    """Left-justify by DISPLAY width so a Chinese label does not shift the
+    version column right (str.ljust counts characters, not cells)."""
+    return s + " " * max(0, width - _disp_width(s))
+
+
+def order_hint(slug):
+    """The per-module note under the menu, translated."""
+    key = "hint." + slug
+    if key in T:
+        return t(key)
+    return ORDER_HINT.get(slug, "")
 
 
 def gradient_banner():
@@ -249,7 +521,7 @@ def snowfall(seconds=3.0, rows=15, cols=76, fps=24, reveal=True):
 
     sys.stdout.write("\x1b[?1049h")     # alternate screen
     sys.stdout.write("\x1b[?25l")       # hide cursor
-    skip_hint = "  press any key to skip"
+    skip_hint = t("splash.skip")
     try:
         frames = int(seconds * fps)
         for f in range(frames):
@@ -363,7 +635,7 @@ def splash_plate(mods, kit_version=""):
     out = [""]
     if winter:
         out.append(c("\x1b[38;5;54m", "   ~  ") +
-                   c("\x1b[38;5;117m", "winter edition") +
+                   c("\x1b[38;5;117m", t("splash.winter")) +
                    c("\x1b[38;5;54m", "  ~"))
         out.append("")
     out.append(gradient_banner())
@@ -373,15 +645,13 @@ def splash_plate(mods, kit_version=""):
     out.append(c(DIM, "   " + left.ljust(58) + right))
     out.append(_rule())
     out.append("")
-    out.append(c(MAGENTA + BOLD, "   MODULES") +
-               c(DIM, "  %d loaded  ·  every one optional and reversible"
-                 % len(mods)))
+    out.append(c(MAGENTA + BOLD, t("splash.modules")) +
+               c(DIM, t("splash.loaded", len(mods))))
     out.append("")
     out.append(module_roster(mods))
     out.append("")
-    out.append(c(DIM, "   every module is optional and reversible; nothing is "
-                      "written outside"))
-    out.append(c(DIM, "   your ZCode install and ~/.zcode/plugins."))
+    out.append(c(DIM, t("splash.reassure")))
+    out.append(c(DIM, t("splash.reassure2")))
     out.append(_rule())
     return "\n".join(out)
 
@@ -985,9 +1255,9 @@ def _apply_locked(mods, selection, paths, interactive):
     # banner at all: the user closes the window believing the install worked,
     # and the exit code stayed 0 so a script could not tell either.
     if any_fail:
-        print(c(BG_RED, "  COMPLETED WITH FAILURES  "))
+        print(c(BG_RED, t("summary.fail")))
     else:
-        print(c(BG_GREEN, "  ALL SYSTEMS OPERATIONAL  "))
+        print(c(BG_GREEN, t("summary.ok")))
     for slug, state in results:
         icon = {"INJECT": c(GREEN, "[+]"), "REMOVE": c(RED, "[-]"),
                 "SKIP": c(YELLOW, "[=]"), "OFF": c(DIM, "[.]"),
@@ -997,21 +1267,21 @@ def _apply_locked(mods, selection, paths, interactive):
     print()
     if any_fail:
         failed = [s for s, st in results if st == "FAIL"]
-        print(c(RED, "  These modules did not complete: " + ", ".join(failed)))
-        print(c(YELLOW, "  Re-run install.bat and open an issue with the log above."))
-        print(c(DIM, "  Your previous asar backup is intact: app.asar.kitbak."))
+        print(c(RED, t("summary.failed_list") + ", ".join(failed)))
+        print(c(YELLOW, t("summary.failed_help")))
+        print(c(DIM, t("summary.backup_ok")))
     # The footer has to match what just happened: telling someone who removed
     # every module to "re-run reinstall.bat" reads like the uninstall failed.
     injected = any(s == "INJECT" for _, s in results)
     removed = any(s == "REMOVE" for _, s in results)
     if injected:
-        print(c(DIM, "  ZCode was updated? Just re-run reinstall.bat -"))
-        print(c(DIM, "  it re-applies this exact selection in one shot."))
-        print(c(DIM, "  Start ZCode now: the modules load at boot."))
+        print(c(DIM, t("summary.reinstall")))
+        print(c(DIM, t("summary.reinstall2")))
+        print(c(DIM, t("summary.start")))
     elif removed:
-        print(c(DIM, "  Every selected module was removed; app.asar and"))
-        print(c(DIM, "  zcode.cjs are back to the official bytes."))
-        print(c(DIM, "  Want them back? Run install.bat and pick modules again."))
+        print(c(DIM, t("summary.removed")))
+        print(c(DIM, t("summary.removed2")))
+        print(c(DIM, t("summary.removed3")))
     print()
     print_ad_block(clickable_link=True)
     return 1 if any_fail else 0
@@ -1030,33 +1300,37 @@ def uninstall_all(mods, paths):
 # ---------------------------------------------------------------------------
 
 def display_name(mod):
-    """Menu label: the module's own Chinese display_name when the console can
-    show it, else the ASCII label. The bat sets codepage 65001, but a redirected
-    or legacy console may still be cp936/cp437 - encoding failure falls back
-    instead of crashing the menu with UnicodeEncodeError."""
+    """Menu label: the module's own Chinese display_name in Chinese mode, the
+    ASCII label in English mode.
+
+    A stream with no `encoding` attribute (StringIO, a pipe wrapper) is not
+    evidence that the console cannot render CJK - assume UTF-8 and let
+    safe_print degrade on the write if it really cannot.
+    """
+    ascii_label = LABELS.get(mod["slug"], mod["slug"]).partition(" ")[0]
     name = (mod.get("display_name") or "").strip()
-    if not name:
-        return LABELS.get(mod["slug"], mod["slug"]).partition(" ")[0]
-    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    if not name or _lang == "en":
+        return ascii_label
+    enc = getattr(sys.stdout, "encoding", None) or "utf-8"
     try:
         name.encode(enc)
     except (UnicodeEncodeError, LookupError):
-        return LABELS.get(mod["slug"], mod["slug"]).partition(" ")[0]
+        return ascii_label
     return name
 
 
 def render(mods, selection, idx, config_sel, dirty=False):
     clear()
-    print(gradient_banner())
-    print(c(MAGENTA, "  zcode-mod-kit  ::  modular patcher console") +
-          (c(N_CYAN, "   *  .  *  winter") if _winter_palette() else ""))
-    print(c(N_CYAN, "  " + "=" * 36))
-    print()
-    print(c(DIM, "  UP/DOWN pick    LEFT/RIGHT or SPACE toggle    ENTER review & apply"))
-    print(c(DIM, "  A all-on    N all-off    R load last selection    O sponsor    Q/ESC quit"))
+    safe_print(gradient_banner())
+    safe_print(c(MAGENTA, t("menu.title")) +
+          (c(N_CYAN, "   *  .  *  " + t("splash.winter")) if _winter_palette() else ""))
+    safe_print(c(N_CYAN, "  " + "=" * 36))
+    safe_print()
+    safe_print(c(DIM, t("menu.hint1")))
+    safe_print(c(DIM, t("menu.hint2")))
     if dirty:
-        print(c(YELLOW, "  * selections differ from the last run - press R to go back to it"))
-    print()
+        safe_print(c(YELLOW, t("menu.dirty")))
+    safe_print()
     for i, mod in enumerate(mods):
         slug = mod["slug"]
         on = selection.get(slug, True)
@@ -1066,14 +1340,17 @@ def render(mods, selection, idx, config_sel, dirty=False):
         name = display_name(mod)
         ver = mod.get("version", "")
         ver_txt = c(DIM, f"v{ver}") if ver else ""
-        row = f"  {status}  {name:34s}{ver_txt:10s}{cur}"
+        # CJK glyphs occupy two terminal cells, so str.ljust() pads a Chinese
+        # name too little and the version column goes ragged. Pad by display
+        # width instead.
+        row = f"  {status}  {pad_display(name, 32)}{ver_txt:10s}{cur}"
         if i == idx:
             row = "\x1b[7m" + row + RESET
-        print(row)
-    print()
+        safe_print(row)
+    safe_print()
     sel = mods[idx]["slug"]
-    print("  " + c(CYAN, "> ") + c(BOLD, ORDER_HINT.get(sel, "")))
-    print()
+    safe_print("  " + c(CYAN, "> ") + c(BOLD, order_hint(sel)))
+    safe_print()
     print_ad_block(clickable_link=True)
 
 
@@ -1125,9 +1402,8 @@ def menu(mods):
                 # applying an old config on one keystroke was a footgun.
                 if not config_sel:
                     show_cursor()
-                    print(c(YELLOW, "\n  no saved selection yet - "
-                                    "run install.bat once first.\n"))
-                    input("  press ENTER to go back to the menu ")
+                    print(c(YELLOW, t("menu.no_saved")))
+                    input(t("menu.back"))
                     hide_cursor()
                     continue
                 selection = {m["slug"]: config_sel.get(m["slug"], True)
@@ -1138,6 +1414,13 @@ def menu(mods):
                 try_open_ad()
                 input("  press ENTER to go back to the menu ")
                 hide_cursor()
+            elif key == "lang":
+                # One-key switch, remembered for next time. Redraw only -
+                # never touches a selection or a file.
+                set_lang("en" if lang() == "zh" else "zh")
+                cfg = load_config()
+                cfg["lang"] = lang()
+                save_config(cfg)
     finally:
         show_cursor()
 
@@ -1147,27 +1430,26 @@ def confirm_plan(mods, selection):
     clear()
     on = [m for m in mods if selection.get(m["slug"], True)]
     off = [m for m in mods if not selection.get(m["slug"], True)]
-    print()
-    print(c(MAGENTA + BOLD, "  REVIEW"))
-    print(c(DIM, "  " + "-" * 66))
-    print("  ZCode install : " + c(WHITE, str(find_zcode_root() or "NOT FOUND")))
-    print("  Modules ON    : " + c(GREEN, str(len(on))) +
-          "    OFF: " + c(DIM, str(len(off))))
-    print()
+    safe_print()
+    safe_print(c(MAGENTA + BOLD, t("review.title")))
+    safe_print(c(DIM, "  " + "-" * 66))
+    safe_print(t("review.install") + c(WHITE, str(find_zcode_root() or t("review.notfound"))))
+    safe_print(t("review.counts") + c(GREEN, str(len(on))) +
+          t("review.off") + c(DIM, str(len(off))))
+    safe_print()
     for m in mods:
         flag = selection.get(m["slug"], True)
         mark = c(GREEN, " [+] ") if flag else c(DIM, " [ ] ")
         ver = c(DIM, "v" + m.get("version", ""))
-        print("  " + mark + c(WHITE if flag else DIM, display_name(m)) +
+        safe_print("  " + mark + c(WHITE if flag else DIM, display_name(m)) +
               "  " + ver)
-    print()
+    safe_print()
     if not on:
-        print(c(YELLOW, "  Nothing is ON - this will REMOVE every module "
-                        "currently installed."))
-        print()
-    print(c(DIM, "  This rewrites app.asar and zcode.cjs. ZCode must be closed."))
+        safe_print(c(YELLOW, t("review.alloff")))
+        safe_print()
+    safe_print(c(DIM, t("review.rewrite")))
     try:
-        ans = input(c(BOLD, "  apply this plan? [y/N] ") + "").strip().lower()
+        ans = input(c(BOLD, t("review.ask")) + "").strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
     return ans in ("y", "yes")
@@ -1195,6 +1477,8 @@ def get_key():
         return "alloff"
     if low == "o":
         return "openad"
+    if low == "l":
+        return "lang"
     if ch == "\x1b":
         return "esc"
     return None
@@ -1202,6 +1486,11 @@ def get_key():
 
 def main():
     vt_on()
+    # UI language: an explicit choice from a previous run wins, otherwise the
+    # system locale decides (Chinese Windows -> Chinese, everything else ->
+    # English). The menu switches it live with L.
+    _cfg0 = load_config()
+    set_lang(_cfg0.get("lang") or _system_lang())
     # The bat only checks that *some* python exists; a 3.8 install would then
     # die on a 3.10 f-string/typing difference far from this line. Check once,
     # up front, with the same actionable wording.
@@ -1224,7 +1513,7 @@ def main():
             snowfall()
         clear()
         print(splash_plate(mods, KIT_VERSION))
-        print(c(DIM, "   painting done - the menu opens next."))
+        print(c(DIM, t("splash.done")))
         time.sleep(0.8)
         return
 
@@ -1270,16 +1559,16 @@ def main():
     if zcode_running():
         clear()
         print()
-        print(c(RED, "  ZCode is running."))
-        print(c(YELLOW, "  Fully quit it first: right-click the tray icon -> Quit"))
-        print(c(YELLOW, "  (closing the window is not enough - the process stays)."))
+        print(c(RED, t("err.zcode_running")))
+        print(c(YELLOW, t("err.zcode_running2")))
+        print(c(YELLOW, t("err.zcode_running3")))
         print()
         try:
-            input(c(DIM, "  press ENTER after quitting, or Ctrl+C to abort "))
+            input(c(DIM, t("err.after_quit")))
         except (EOFError, KeyboardInterrupt):
             return
         if zcode_running():
-            print(c(RED, "  still running - aborting. Nothing was changed."))
+            print(c(RED, t("err.still_running")))
             return
 
     clear()
@@ -1289,7 +1578,7 @@ def main():
         selection = None
     if selection is None:
         clear()
-        print(c(DIM, "BYE. \\o/"))
+        print(c(DIM, t("byebye")))
         return
     clear()
     sys.exit(apply_modules(mods, selection, paths, interactive=True))

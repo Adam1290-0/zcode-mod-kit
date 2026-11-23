@@ -261,7 +261,12 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
   - 太短/识别失败/没听到内容三条提前退出不清 `pendingSend` → 下次录音成功时凭空补发一条
   - 实时草稿替换按「光标往回数 N 字」定位，用户中途打字会连带删掉自己的字 → 替换前校验选中内容确实是我们注入的那段
   - 终稿删除草稿时不先 focus 输入框，焦点在别处时会删掉那个框里的字符
-- 🧪 **322 项测试全绿**（engine 32 + modules 196 + edge 52 + incident 42 + 皮肤 smoke 21），新增覆盖：确认清单、中文名回退、zombie 部署资产全覆盖、route/pin payload 新鲜度、语音八项回归
+- ✨ **菜单中英双语 + 一键切换**：中文系统默认中文（Windows UI 语言判定），其他系统默认英文；菜单里按 `L` 即时切换，选择记进 `config.json`，下次沿用
+  - Git Bash 在中文 Windows 上会设 `LANG=C.UTF-8`，那是 shell 默认值不代表系统语言——早期版本因此把中文系统判成英文，已修正（C/POSIX 伪 locale 一律忽略，真实 `zh_CN`/`en_US` 才作数）
+  - 模块行显示 `module.json` 的中文名，按显示宽度补空格（CJK 占两格，用 `ljust` 会让版本列错位）；英文模式下退回 ASCII 标签
+  - 每个模块下方的说明也有中文版
+  - `safe_print` 兜底：万一在没跑 bat 的 cp936 控制台里输出中文，最差是问号而不是 `UnicodeEncodeError` 崩掉安装器
+- 🧪 **355 项测试全绿**（engine 44 + modules 196 + edge 52 + incident 42 + 皮肤 smoke 21），新增覆盖：确认清单、中文名回退、zombie 部署资产全覆盖、route/pin payload 新鲜度、语音八项回归
 - 🧪 **真机 3.19.1 端到端**：10 模块注入 → verify 0 → 二次注入幂等（字节无变化）→ 卸载 → 6 处写入目标字节级还原
 - 🧪 **真实启动握手**：干净 / 五模块全打 / 还原后三种状态各跑一次真正的 `--prepare-storage` worker，均返回 `storagePrepared`，无 `is not defined`
 

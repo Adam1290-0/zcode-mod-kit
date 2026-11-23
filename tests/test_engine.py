@@ -241,17 +241,85 @@ def main():
 
     real_out = sys.stdout
     try:
+        # display_name() now depends on the active language, so pin it: in
+        # English mode the Chinese name is deliberately not used.
+        M.set_lang("zh")
         sys.stdout = _Enc("ascii")
         check("display_name: falls back to an ASCII label on an ascii console",
               M.display_name(cyr).isascii(), M.display_name(cyr))
         sys.stdout = _Enc("utf-8")
         check("display_name: uses the Chinese name on a utf-8 console",
               M.display_name(cyr) == "上下文固定 Pin", M.display_name(cyr))
+        M.set_lang("en")
+        check("display_name: English mode uses the ASCII label even on utf-8",
+              M.display_name(cyr).isascii(), M.display_name(cyr))
     finally:
         sys.stdout = real_out
+        M.set_lang("en")
     check("display_name: unknown slug still gets a label",
           bool(M.display_name({"slug": "no-such", "version": "1"})),
           "empty name")
+
+    # ---- i18n: locale default + live switch ---------------------------------
+    print("\n--- i18n: Chinese systems default to Chinese, L switches")
+    saved = {k: _os.environ.get(k) for k in ("LANG", "LC_ALL", "LANGUAGE")}
+    try:
+        for k in saved:
+            _os.environ.pop(k, None)
+        # A real locale string wins (Windows UI language is the fallback, and
+        # on the test machine that is unknowable from here).
+        _os.environ["LANG"] = "zh_CN.UTF-8"
+        check("lang: zh_CN locale -> zh", M._system_lang() == "zh",
+              M._system_lang())
+        _os.environ["LANG"] = "en_US.UTF-8"
+        check("lang: en_US locale -> en", M._system_lang() == "en",
+              M._system_lang())
+        # Git Bash on a Chinese Windows sets C.UTF-8; it must NOT force English
+        # (that was a real bug: every Chinese machine came out English).
+        _os.environ["LANG"] = "C.UTF-8"
+        got = M._system_lang()
+        check("lang: C.UTF-8 is ignored, not treated as English",
+              got in ("zh", "en"), got)
+        if _os.name == "nt":
+            import ctypes
+            lid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+            want = "zh" if (lid & 0xFF) == 0x04 else "en"
+            check("lang: C.UTF-8 falls through to the Windows UI language",
+                  got == want, "%s vs %s" % (got, want))
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
+
+    M.set_lang("en")
+    check("lang: set_lang('en')", M.lang() == "en")
+    M.set_lang("zh")
+    check("lang: set_lang('zh')", M.lang() == "zh")
+    M.set_lang("klingon")
+    check("lang: unknown language falls back to en", M.lang() == "en")
+
+    M.set_lang("zh")
+    check("i18n: Chinese menu hint is Chinese",
+          "上下键" in M.t("menu.hint1"), M.t("menu.hint1"))
+    M.set_lang("en")
+    check("i18n: English menu hint is English",
+          "UP/DOWN" in M.t("menu.hint1"), M.t("menu.hint1"))
+
+    # Every key must exist in both languages, or the menu silently reverts to
+    # English mid-screen on a Chinese system.
+    missing = [(k, l) for k, v in M.T.items() for l in M.LANGS
+               if not v.get(l)]
+    check("i18n: every string has both translations", not missing, str(missing[:4]))
+    # Placeholders must match across languages or % formatting throws.
+    bad = []
+    for k, v in M.T.items():
+        n_en = v.get("en", "").count("%")
+        for l in M.LANGS:
+            if v.get(l, "").count("%") != n_en:
+                bad.append((k, l))
+    check("i18n: placeholder counts agree across languages", not bad, str(bad[:4]))
 
     print(f"\n===== {_passed} passed, {_failed} failed =====")
     return 1 if _failed else 0

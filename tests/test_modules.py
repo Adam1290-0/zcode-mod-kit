@@ -491,11 +491,35 @@ def main():
         check("zombie: marker present", b"zcode-zombie-cleanup" in cjs.read_bytes())
         rc, out = run(zdir / "verify.py", zargs, env)
         check("zombie: verify exit 0", rc == 0, out[-300:])
+
+        # Every asset inject.py deploys must be covered by verify.py. The skip
+        # gate trusts the verifier, so an unchecked write target silently stays
+        # at an old version forever (the stale-skin / stale-sidecar class).
+        zh = Path(env["USERPROFILE"]) / ".zcode" / "plugins" / "zombie-cleanup"
+        deployed = sorted(p.name for p in zh.iterdir() if p.is_file()) \
+            if zh.is_dir() else []
+        check("zombie: scheduled-task installer deployed",
+              "install-scheduled-task.ps1" in deployed, str(deployed))
+        # corrupt it: verify must report STALE (2), not "fine" (0) or "absent" (1)
+        if "install-scheduled-task.ps1" in deployed:
+            (zh / "install-scheduled-task.ps1").write_bytes(b"# stale\n")
+            rc, out = run(zdir / "verify.py", zargs, env)
+            check("zombie: stale task installer -> exit 2", rc == 2, out[-300:])
+            check("zombie: stale report names the file",
+                  "install-scheduled-task.ps1" in out, out[-300:])
+            # restore and re-check
+            run(zdir / "inject.py", zargs, env)
+            rc, out = run(zdir / "verify.py", zargs, env)
+            check("zombie: verify recovers after redeploy", rc == 0, out[-300:])
+
         rc, out = run(zdir / "inject.py", zargs, env)
         check("zombie: re-inject idempotent", rc == 0 and "[SKIP]" in out, out[-300:])
         rc, out = run(zdir / "uninject.py", zargs, env)
         check("zombie: uninject exit 0", rc == 0, out[-300:])
         check("zombie: byte-identical restore", cjs.read_bytes() == ZOMBIE_CJS)
+        left = sorted(p.name for p in zh.iterdir()) if zh.is_dir() else []
+        check("zombie: uninject removes deployed runtime files",
+              not any(n.endswith(".ps1") for n in left), str(left))
 
         # legacy unmarked patch (scripts/patch_zcode_mcp_cleanup.py format):
         # payload present without the module marker -> inject SKIPs, verify ok,
@@ -858,6 +882,40 @@ def main():
               "skinModulePresent" in vhtml and "if (!skinSeen) return null" in vhtml)
         check("voice: built-in fallback colours kept",
               "#22d3ee" in vhtml and "#8b5cf6" in vhtml)
+        # --- regressions found in the 2026-11-23 audit ---------------------
+        # The hotkey recorder arms a document-wide capture listener that
+        # swallows every keystroke. Closing the menu must disarm it, or the
+        # whole app stops accepting input with no visible cause.
+        check("voice: closing the menu disarms the hotkey recorder",
+              "if (recordingHotkey) stopHotkeyRecord();" in vhtml
+              and vhtml.index("function closeMenu") <
+              vhtml.index("if (recordingHotkey) stopHotkeyRecord();"))
+        # IME Enter (candidate accept) must never be treated as "send".
+        check("voice: send guard ignores IME composition Enter",
+              "ev.isComposing || ev.keyCode === 229" in vhtml,
+              "IME check missing")
+        # A parked send must be cleared on EVERY early exit, or the next
+        # successful recording replays a ghost Enter.
+        check("voice: short-recording path clears pendingSend",
+              "太短了，未转写" in vhtml,
+              "short path missing")
+        seg = vhtml[vhtml.index("function finishRecording"):]
+        seg = seg[:seg.index("function releasePendingSend")]
+        check("voice: finishRecording clears pendingSend on all three early exits",
+              seg.count("pendingSend = null") >= 3, str(seg.count("pendingSend = null")))
+        # Switching modes mid-recording must settle the local take first.
+        check("voice: mode switch settles an in-flight recording",
+              "if (recording) finishRecording();" in vhtml and
+              "saveConfig({ mode: m[0] })" in vhtml)
+        # Draft replacement must verify content before deleting, and the final
+        # result must focus the composer before any execCommand.
+        check("voice: draft selection is verified against injected text",
+              "candidate !== lastDraftText" in vhtml)
+        check("voice: a verified fallback deletes only the draft run",
+              "function dropDraftRun" in vhtml)
+        check("voice: final insertion focuses the composer first",
+              "ed.focus();\n          injectedLen = lastDraftText.length;" in vhtml,
+              "focus-before-delete missing")
         check("voice: look settings persisted in defaults",
               all(k in vhtml for k in ("lineWidth", "glow", "opacity", "tail")))
 
@@ -907,6 +965,85 @@ def main():
         check("voice: main restored",
               (work / "out" / "main" / "index.js").read_bytes()
               == MOCK_MAIN_LF.encode())
+
+        # ---- 12. zombie-cleanup 3.19.1 anchor (8th generation) -------------
+        # shutdown handler became `p(),n(Rws(_))`. Pinned here because the
+        # exit-code helper is re-minified on nearly every release; without a
+        # case like this an upgrade silently stops cleaning orphan MCP procs.
+        ZOMBIE_3191 = (
+            b'"use strict";'
+            b'function dui(e){let t=e.process??process,n=e.exitProcess??(_=>process.exit(_)),'
+            b'o=Math.max(0,Math.trunc(e.cleanupTimeoutMs??Iws)),i=Aws(t.platform),a=[],c=!1,u=!1,'
+            b'p=r(()=>{if(!c){c=!0;for(let[_,v]of a)t.off(_,v)}},"unregister"),'
+            b'h=r(async _=>{u||(u=!0,e.abort?.(_),await rj(e.cleanup,o),await cst(),'
+            b'p(),n(Rws(_)))},"shutdown");return h}\n'
+        )
+        workD = tmp / "zombie-3191" / "unpacked"
+        cjsD = make_tree(workD, cjs=ZOMBIE_3191)
+        envD = dict(os.environ)
+        envD["USERPROFILE"] = str(tmp / "zombie-3191" / "home")
+        envD["HOME"] = str(tmp / "zombie-3191" / "home")
+        rc, out = run(zdir / "inject.py", ["--zcode-cjs", str(cjsD)], envD)
+        check("zombie-3191: inject exit 0", rc == 0, out[-300:])
+        check("zombie-3191: marker present",
+              b"zcode-zombie-cleanup" in cjsD.read_bytes())
+        rc, out = run(zdir / "uninject.py", ["--zcode-cjs", str(cjsD)], envD)
+        check("zombie-3191: uninject byte-identical", cjsD.read_bytes() == ZOMBIE_3191)
+
+        # ---- 13. edit-resend-model-fix round-trip byte-exactness -----------
+        # Regression for the comma bug: the injector widens the retryTurn zod
+        # schema and the uninjector must consume the trailing
+        # ",setAssistantFeedback" together with it. The earlier regex stopped
+        # at `})`, so uninject left a duplicate key behind and zcode.cjs could
+        # never be restored byte-exactly (which is what an uninstall needs).
+        ER_CJS = (
+            b'"use strict";'
+            b'var m=require("x");'
+            b'var T=m.object({editUserQuery:m.object({target:$R,newText:m.string(),'
+            b'modelSelection:qc.optional(),mode:fj.optional()}),'
+            b'retryTurn:m.object({target:$R}),'
+            b'setAssistantFeedback:m.object({target:$R,feedback:m.string()})});'
+            b'function q(t){'
+            b'let p=t.type==="editUserQuery"?t.payload:void 0;'
+            b'return p}\n'
+        )
+        workE = tmp / "editresend" / "unpacked"
+        cjsE = make_tree(workE, cjs=ER_CJS)
+        # The module also patches a renderer chunk; give it a minimal one so the
+        # cjs round-trip this case is really about can run to completion.
+        rd = workE / "out" / "renderer" / "assets"
+        rd.mkdir(parents=True, exist_ok=True)
+        # The chunk must also carry the upstream edit-side spread; the module
+        # refuses to patch when that guard is missing (it would mean the edit
+        # path regressed upstream and the whole v7 assumption is void).
+        # Wrapped in useMemo so the chunk stays valid JS for node --check AND
+        # reproduces the module's byte-exact retry anchor
+        # (`return Di(...)},[Di,t])`).
+        (rd / "styles-test.js").write_text(
+            "(function(){\n"
+            "var o=si();f({...o?{modelSelection:o.modelSelection,mode:o.mode,"
+            "planEnabled:o.planEnabled}:{}});\n"
+            "var h=useMemo(function(e){return Di(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Di,t]);\n"
+            "})();\n"
+            + "//" + "x" * 110_000 + "\n",
+            encoding="utf-8")
+        envE = dict(os.environ)
+        envE["USERPROFILE"] = str(tmp / "editresend" / "home")
+        envE["HOME"] = str(tmp / "editresend" / "home")
+        rc, out = run(module("edit-resend-model-fix") / "inject.py",
+                      ["--dir", str(workE), "--zcode-cjs", str(cjsE)], envE)
+        check("editresend: inject exit 0", rc == 0, out[-300:])
+        if rc == 0:
+            widened = cjsE.read_bytes()
+            check("editresend: retryTurn schema widened",
+                  b"retryTurn:m.object({target:$R,modelSelection:qc.optional()"
+                  in widened, widened[300:520].decode("utf-8", "replace"))
+            rc, out = run(module("edit-resend-model-fix") / "uninject.py",
+                          ["--dir", str(workE), "--zcode-cjs", str(cjsE)], envE)
+            check("editresend: uninject exit 0", rc == 0, out[-300:])
+            check("editresend: byte-identical restore (comma regression)",
+                  cjsE.read_bytes() == ER_CJS,
+                  "leftover bytes: " + repr(cjsE.read_bytes()[len(ER_CJS):]))
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

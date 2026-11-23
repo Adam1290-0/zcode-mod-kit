@@ -27,12 +27,13 @@ SLUG = "zombie-cleanup"
 # to find the script.
 RUNTIME_DIR = Path(os.path.expanduser("~/.zcode/plugins/zombie-cleanup"))
 CLEANUP_SCRIPT_NAME = "cleanup_mcp_zombies.ps1"
+TASK_INSTALLER_NAME = "install-scheduled-task.ps1"
 CLEANUP_SCRIPT = str((RUNTIME_DIR / CLEANUP_SCRIPT_NAME).as_posix())
 
 # ZCode renames minified symbols between releases; the shutdown call shape is
 # <unregister>(),n(<exitCodeForSignal>(_)) — both symbols change:
 # eNi/f (<= 3.14.x) -> z7i (3.15.x) -> TYi (3.16.2) -> RYi (3.16.3)
-# -> Ios (3.17.2) -> mgs/d (3.18.0) -> c0s/d (3.18.2).
+# -> Ios (3.17.2) -> mgs/d (3.18.0) -> c0s/d (3.18.2) -> Rws/p (3.19.1).
 # All known generations are supported; exactly one must match.
 ANCHOR_314 = b"f(),n(eNi(_))"
 ANCHOR_315 = b"f(),n(z7i(_))"
@@ -41,8 +42,9 @@ ANCHOR_3163 = b"f(),n(RYi(_))"
 ANCHOR_3172 = b"f(),n(Ios(_))"
 ANCHOR_3180 = b"d(),n(mgs(_))"
 ANCHOR_3182 = b"d(),n(c0s(_))"
+ANCHOR_3191 = b"p(),n(Rws(_))"
 ANCHORS = (ANCHOR_314, ANCHOR_315, ANCHOR_316, ANCHOR_3163, ANCHOR_3172,
-           ANCHOR_3180, ANCHOR_3182)
+           ANCHOR_3180, ANCHOR_3182, ANCHOR_3191)
 MARKER = b"zcode-zombie-cleanup"
 
 
@@ -152,7 +154,43 @@ def deploy_script() -> Path:
     dst = RUNTIME_DIR / CLEANUP_SCRIPT_NAME
     shutil.copy2(src, dst)
     log(f"deployed cleanup script -> {dst}")
+
+    # Ship it unconditionally: verify.py requires this file to exist, so a
+    # missing asset would make verify fail forever and (worse) make uninstall
+    # read the module as "not injected" and skip the cjs cleanup. A missing
+    # asset is a broken checkout, not a reason to degrade silently.
+    installer_src = (Path(__file__).resolve().parent / "assets"
+                     / TASK_INSTALLER_NAME)
+    if not installer_src.is_file():
+        fail(f"scheduled-task installer asset missing: {installer_src}")
+    installer_dst = RUNTIME_DIR / TASK_INSTALLER_NAME
+    shutil.copy2(installer_src, installer_dst)
+    register_scheduled_task(installer_dst)
     return dst
+
+
+def register_scheduled_task(installer: Path) -> None:
+    """Register the hourly safety-net task.
+
+    The shutdown hook only fires on a clean ZCode exit; a crash or a hard kill
+    leaves orphans behind with nothing to collect them. This task bounds that
+    to one hour. Failure is logged, never fatal - a missing task must not stop
+    the primary injection from working.
+    """
+    try:
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File", str(installer)],
+            capture_output=True, text=True, timeout=120,
+            encoding="utf-8", errors="replace",
+        )
+        if proc.returncode == 0:
+            log("hourly safety-net task registered")
+        else:
+            log(f"warn: scheduled task registration returned "
+                f"{proc.returncode}: {(proc.stdout + proc.stderr)[-200:]}")
+    except Exception as exc:                      # noqa: BLE001 - best effort
+        log(f"warn: could not register scheduled task: {exc}")
 
 
 def main() -> None:

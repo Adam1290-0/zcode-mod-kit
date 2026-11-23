@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """edit-resend-model-fix v7: cjs + renderer uninjector for zcode-mod-kit.
 
-Reverses v7 back to the OFFICIAL 3.18.0 state, byte-exactly, on both targets.
+Reverses v7 back to the OFFICIAL upstream state, byte-exactly, on both targets.
 The edit path is untouched by v7 (fixed upstream), so only the retry-side
 patches are reverted.
+
+Every patch this module writes is located by pattern, not by a single
+version's minified names: the gate variable, the zod binding, the schema
+aliases, the renderer dispatcher and the draft reader all vary per build.
 """
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -13,28 +18,30 @@ from pathlib import Path
 
 SLUG = "edit-resend-model-fix"
 
-GATE_OLD = b'let d=t.type==="editUserQuery"?t.payload:void 0'
-GATE_NEW = (b"/*[zcode-editresend-model-fix:v7]*/"
-            b'let d=t.type==="editUserQuery"||t.type==="retryTurn"?t.payload:void 0')
-RT_OLD = b"retryTurn:m.object({target:PR}),setAssistantFeedback"
-RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Wc.optional(),"
-          b"mode:H4.optional(),planEnabled:m.boolean().optional()}),"
-          b"setAssistantFeedback")
-RT_OLD_3182 = b"retryTurn:m.object({target:DR}),setAssistantFeedback"
-RT_NEW_3182 = (b"retryTurn:m.object({target:DR,modelSelection:Wc.optional(),"
-               b"mode:J4.optional(),planEnabled:m.boolean().optional()}),"
-               b"setAssistantFeedback")
+GATE_WIDENED_RE = re.compile(
+    rb'/\*\[zcode-editresend-model-fix:v7\]\*/let ([\w$]+)=t\.type==="'
+    rb'editUserQuery"\|\|t\.type==="retryTurn"\?t\.payload:void 0')
 
-SEL_SPREAD = (b"...si?{modelSelection:si.modelSelection,mode:si.mode,"
-              b"planEnabled:si.planEnabled}:{}")
-SEL_SPREAD_3182 = (b"...((_r)=>_r?{modelSelection:_r.modelSelection,"
-                   b"mode:_r.mode,planEnabled:_r.planEnabled}:{})(ii()),")
-BI_NEW = (b"return Ni(`retryTurn`,{target:e," + SEL_SPREAD +
-          b"},t,n.revision,n.logEpoch)}/*[zcode-editresend-ui]*/,[Ni,t])")
-BI_OLD = b"return Ni(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Ni,t])"
-BI_NEW_3182 = (b"return Mi(`retryTurn`,{target:e," + SEL_SPREAD_3182 +
-               b"},t,n.revision,n.logEpoch)}/*[zcode-editresend-ui]*/,[Mi,t])")
-BI_OLD_3182 = b"return Mi(`retryTurn`,{target:e},t,n.revision,n.logEpoch)},[Mi,t])"
+# Matches the widened retryTurn schema TOGETHER WITH the ",setAssistantFeedback"
+# that follows it. The injector wrote
+#   retryTurn:z.object({...planEnabled:z.boolean().optional()}),setAssistantFeedback
+# so the narrow replacement must regenerate the comma AND the next key. The
+# earlier version stopped at `})` and appended ",setAssistantFeedback" itself,
+# leaving the original one in place -> `setAssistantFeedback,setAssistantFeedback`
+# -> zcode.cjs would not restore byte-exactly (caught by uninstall verification).
+RT_WIDENED_RE = re.compile(
+    rb"retryTurn:([\w$]+)\.object\(\{target:([\w$]+),modelSelection:[\w$]+"
+    rb"\.optional\(\),mode:[\w$]+\.optional\(\),"
+    rb"planEnabled:[\w$]+\.boolean\(\)\.optional\(\)\}\)(,setAssistantFeedback)")
+
+# The injected renderer callback, whatever dispatcher/reader it used:
+#   return <D>(`retryTurn`,{target:e,<IIFE spread>},t,n.revision,n.logEpoch)}/*marker*/,[<D>,t])
+BI_INJECTED_RE = re.compile(
+    rb"return ([\w$]+)\(`retryTurn`,\{target:e,"
+    rb"\.\.\.\(\(_r\)=>_r\?\{modelSelection:_r\.modelSelection,mode:_r\.mode,"
+    rb"planEnabled:_r\.planEnabled\}:\{\}\)\([\w$]+\(\)\)"
+    rb"\},t,n\.revision,n\.logEpoch\)\}"
+    rb"/\*\[zcode-editresend-ui\]\*/,\[\1,t\]\)")
 
 
 def log(msg: str) -> None:
@@ -65,25 +72,29 @@ def uninject_cjs(tpath: Path) -> None:
     data = tpath.read_bytes()
     touched = False
 
-    if GATE_NEW in data:
-        if data.count(GATE_NEW) != 1:
+    m = GATE_WIDENED_RE.search(data)
+    if m:
+        var = m.group(1)
+        narrowed = (b"let " + var + b'=t.type==="editUserQuery"?t.payload:void 0')
+        if data.count(m.group(0)) != 1:
             fail("cjs builder gate patch matched != 1; abort", 2)
-        data = data.replace(GATE_NEW, GATE_OLD, 1)
+        # GATE_WIDENED_RE includes the marker comment, so this one replace
+        # restores the pristine text byte-for-byte.
+        data = data.replace(m.group(0), narrowed, 1)
         touched = True
-        log("cjs L1: builder gate restored to editUserQuery-only")
-    elif GATE_OLD in data:
+        log(f"cjs L1: builder gate restored to editUserQuery-only "
+            f"(var={var.decode()})")
+    else:
         log("cjs L1: no patch present")
 
-    if RT_NEW in data:
-        if data.count(RT_NEW) != 1:
+    m = RT_WIDENED_RE.search(data)
+    if m:
+        zod, tgt, tail = m.group(1), m.group(2), m.group(3)
+        narrowed = (b"retryTurn:" + zod + b".object({target:" + tgt +
+                    b"})" + tail)
+        if data.count(m.group(0)) != 1:
             fail("cjs retryTurn widened schema matched != 1; abort", 2)
-        data = data.replace(RT_NEW, RT_OLD, 1)
-        touched = True
-        log("cjs L2: retryTurn schema unwidened")
-    elif RT_NEW_3182 in data:
-        if data.count(RT_NEW_3182) != 1:
-            fail("cjs retryTurn widened schema matched != 1; abort", 2)
-        data = data.replace(RT_NEW_3182, RT_OLD_3182, 1)
+        data = data.replace(m.group(0), narrowed, 1)
         touched = True
         log("cjs L2: retryTurn schema unwidened")
 
@@ -97,13 +108,12 @@ def renderer_candidates(root: Path):
     assets = root / "out" / "renderer" / "assets"
     if not assets.is_dir():
         fail(f"renderer assets dir not found: {assets}")
-    keys = [b"zcode-editresend-ui", SEL_SPREAD, SEL_SPREAD_3182, BI_OLD,
-            BI_OLD_3182]
     for js in sorted(assets.glob("*.js")):
         if js.stat().st_size < 100_000:
             continue
         data = js.read_bytes()
-        if any(k in data for k in keys):
+        if (b"zcode-editresend-ui" in data
+                or BI_INJECTED_RE.search(data)):
             yield js, data
 
 
@@ -118,21 +128,18 @@ def uninject_renderer(root: Path) -> None:
     log(f"renderer target: {rpath.name}")
     touched = False
 
-    if BI_NEW in data:
-        if data.count(BI_NEW) != 1:
+    m = BI_INJECTED_RE.search(data)
+    if m:
+        d = m.group(1)
+        plain = (b"return " + d + b"(`retryTurn`,{target:e},t,n.revision,"
+                 b"n.logEpoch)},[" + d + b",t])")
+        if data.count(m.group(0)) != 1:
             fail("renderer retry patch matched != 1; abort", 2)
-        data = data.replace(BI_NEW, BI_OLD, 1)
+        data = data.replace(m.group(0), plain, 1)
         touched = True
-        log("renderer retry: reverted")
-    elif BI_NEW_3182 in data:
-        if data.count(BI_NEW_3182) != 1:
-            fail("renderer retry patch matched != 1; abort", 2)
-        data = data.replace(BI_NEW_3182, BI_OLD_3182, 1)
-        touched = True
-        log("renderer retry: reverted")
+        log(f"renderer retry: reverted (dispatcher={d.decode()})")
 
-    if (b"zcode-editresend-ui" in data or SEL_SPREAD in data
-            or SEL_SPREAD_3182 in data):
+    if b"zcode-editresend-ui" in data:
         fail("renderer: stray editresend markers remain; abort", 2)
 
     if touched:

@@ -185,6 +185,74 @@ def main():
     finally:
         shutil.rmtree(t2, ignore_errors=True)
 
+    # ---- apply confirmation gate -------------------------------------------
+    # ENTER must never start a 2-3 minute rewrite of a 385 MB app on one
+    # keystroke: the plan is printed and an explicit y is required.
+    print("\n--- confirm_plan: ENTER now needs an explicit yes")
+    mods = [{"slug": "pin", "version": "1.0.8", "display_name": "Pin"},
+            {"slug": "voice-input", "version": "1.2.0", "display_name": "Voice"}]
+    sel = {"pin": True, "voice-input": False}
+    import builtins
+    import io as _io
+
+    def with_answer(ans, selection=None):
+        old_in = builtins.input
+        old_out = sys.stdout
+        buf = _io.StringIO()
+        sys.stdout = buf
+        builtins.input = lambda *a, **k: ans
+        try:
+            return M.confirm_plan(mods, selection or sel), buf.getvalue()
+        finally:
+            builtins.input = old_in
+            sys.stdout = old_out
+
+    ok_y, out_y = with_answer("y")
+    check("confirm_plan: 'y' proceeds", ok_y is True)
+    check("confirm_plan: plan lists every module",
+          out_y.count("[+]") == 1 and out_y.count("[ ]") == 1, out_y[-300:])
+    ok_n, _ = with_answer("n")
+    check("confirm_plan: 'n' declines", ok_n is False)
+    ok_blank, _ = with_answer("")
+    check("confirm_plan: blank answer declines (safe default)", ok_blank is False)
+    ok_junk, _ = with_answer("yes please")
+    check("confirm_plan: unrecognised answer declines", ok_junk is False)
+    ok_yes, _ = with_answer("YES")
+    check("confirm_plan: answer is case-insensitive", ok_yes is True)
+
+    # all-OFF must say out loud that it REMOVES
+    _, out_off = with_answer("n", {"pin": False, "voice-input": False})
+    check("confirm_plan: all-OFF warns that it removes everything",
+          "REMOVE" in out_off, out_off[-300:])
+
+    # ---- menu label falls back when the console cannot encode Chinese ------
+    # sys.stdout.encoding is read-only on a real stream, so swap in a stub.
+    cyr = {"slug": "pin", "version": "1.0.8", "display_name": "上下文固定 Pin"}
+
+    class _Enc:
+        def __init__(self, enc):
+            self.encoding = enc
+
+        def write(self, *_):
+            pass
+
+        def flush(self):
+            pass
+
+    real_out = sys.stdout
+    try:
+        sys.stdout = _Enc("ascii")
+        check("display_name: falls back to an ASCII label on an ascii console",
+              M.display_name(cyr).isascii(), M.display_name(cyr))
+        sys.stdout = _Enc("utf-8")
+        check("display_name: uses the Chinese name on a utf-8 console",
+              M.display_name(cyr) == "上下文固定 Pin", M.display_name(cyr))
+    finally:
+        sys.stdout = real_out
+    check("display_name: unknown slug still gets a label",
+          bool(M.display_name({"slug": "no-such", "version": "1"})),
+          "empty name")
+
     print(f"\n===== {_passed} passed, {_failed} failed =====")
     return 1 if _failed else 0
 

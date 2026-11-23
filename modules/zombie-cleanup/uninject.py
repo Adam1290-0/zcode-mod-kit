@@ -124,6 +124,37 @@ def main() -> None:
     tpath.write_bytes(new_data)
     print(f"[{SLUG}] restored: cleanup trigger removed from shutdown handler")
 
+    # Unregister the hourly safety-net task BEFORE deleting the script it
+    # points at. Otherwise the task keeps firing every hour at a path that no
+    # longer exists: a permanent silent failure that also re-creates nothing.
+    installer = RUNTIME_DIR / "install-scheduled-task.ps1"
+    if installer.is_file():
+        try:
+            import subprocess
+            proc = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-File", str(installer), "-Unregister"],
+                capture_output=True, text=True, timeout=90,
+                encoding="utf-8", errors="replace")
+            print(f"[{SLUG}] hourly task unregistered"
+                  if proc.returncode == 0 else
+                  f"[{SLUG}] warn: task unregister returned {proc.returncode}")
+        except Exception as exc:                   # noqa: BLE001 - best effort
+            print(f"[{SLUG}] warn: could not unregister task: {exc}")
+
+    # Remove the runtime files this module deployed. Leaving them behind means
+    # a "removed" install still has a scheduled task pointing at a script that
+    # outlived its module. Best effort: a locked file must not fail the
+    # uninstall, but it must be reported.
+    for name in ("cleanup_mcp_zombies.ps1", "install-scheduled-task.ps1"):
+        f = RUNTIME_DIR / name
+        if f.is_file():
+            try:
+                f.unlink()
+                print(f"[{SLUG}] removed runtime file: {f}")
+            except OSError as exc:
+                print(f"[{SLUG}] warn: could not remove {f}: {exc}")
+
 
 if __name__ == "__main__":
     main()

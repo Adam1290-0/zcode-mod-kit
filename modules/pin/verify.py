@@ -12,7 +12,7 @@ Usage:
 
 Standard library only. All output lines are prefixed with [pin].
 """
-import sys, argparse, os
+import sys, argparse, os, re
 from pathlib import Path
 
 DATA_DIR = Path(os.path.expanduser("~/.zcode/plugins/pin"))
@@ -37,6 +37,7 @@ def main() -> int:
             missing.append("zcode-cjs-marker")
 
     html_path = Path(args.dir) / "out" / "renderer" / "index.html"
+    stale_payload = False
     if not html_path.exists():
         missing.append("index-html-missing")
     else:
@@ -45,6 +46,29 @@ def main() -> int:
             missing.append("ui-block")
         if TOKEN_PLACEHOLDER in html:
             missing.append("token-unreplaced")
+        # Payload freshness: the block must equal assets/ui_pin.js, modulo the
+        # inlined token. Without this, an updated ui_pin.js would never reach a
+        # machine that already has the marker - this verifier is the only thing
+        # the kit's SKIP gate consults (same class as skin-manager's STALE bug).
+        asset_ui = Path(__file__).resolve().parent / "assets" / "ui_pin.js"
+        if UI_MARKER in html and asset_ui.is_file():
+            start = html.find(UI_MARKER)
+            end = html.find("</script>", start)
+            if end > start:
+                # inject.py substitutes the quoted placeholder in place
+                # ('__ZPIN_TOKEN__' -> '<hex>'), so normalise the hex back to
+                # the placeholder and compare against the raw asset. There is
+                # no prologue line to strip here.
+                got = html[start:end].replace(UI_MARKER, "", 1)
+                got = re.sub(r"['\"][0-9a-fA-F]{32,64}['\"]",
+                             TOKEN_PLACEHOLDER, got, count=1)
+                try:
+                    want = asset_ui.read_text(encoding="utf-8",
+                                              newline="").strip()
+                except Exception:
+                    want = None
+                if want is not None and got.strip().rstrip("</script>").strip() != want:
+                    stale_payload = True
 
     # Runtime wrapper freshness. The kit's SKIP gate trusts this verifier, and
     # the wrapper is only deployed by inject.py - so without this check a
@@ -64,14 +88,18 @@ def main() -> int:
         elif core_deployed.read_bytes() != core_asset.read_bytes():
             missing.append("runtime-core-stale")
 
-    if missing:
-        # Any "-stale" entry means the injection is present but outdated:
-        # exit 2 so the installer re-deploys on install and still removes it
-        # on uninstall. Only genuinely absent pieces are exit 1.
-        stale_only = all(m.endswith("-stale") for m in missing)
-        print("[pin] verify " + ("STALE" if stale_only else "FAIL") + ": "
-              + ", ".join(missing))
-        return 2 if stale_only else 1
+    if missing or stale_payload:
+        # ANY "-stale" entry (or a stale UI payload) means the injection is
+        # present but outdated: exit 2 so the installer re-deploys on install
+        # and still removes it on uninstall. Only genuinely absent pieces are
+        # exit 1. The old `all(...)` form collapsed a mixed
+        # "wrapper-stale + core-missing" into exit 1, which made uninstall
+        # treat a live module as absent and skip removing it.
+        any_stale = stale_payload or any(m.endswith("-stale") for m in missing)
+        parts = list(missing) + (["ui-payload-stale"] if stale_payload else [])
+        print("[pin] verify " + ("STALE" if any_stale else "FAIL") + ": "
+              + ", ".join(parts))
+        return 2 if any_stale else 1
     print("[pin] verify OK: fully injected")
     return 0
 

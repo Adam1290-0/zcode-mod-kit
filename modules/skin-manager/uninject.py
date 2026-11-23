@@ -39,7 +39,11 @@ def main() -> None:
     if not html_path.is_file():
         fail(f"index.html not found: {html_path}")
 
-    html = html_path.read_text(encoding="utf-8")
+    # newline="" on READ too: the default text mode folds \r\n into \n, and
+    # writing back with newline="" then emits a file whose line endings differ
+    # from the original - the block is removed but the restore is no longer
+    # byte-exact, which breaks the kit's own promise.
+    html = html_path.read_text(encoding="utf-8", newline="")
     new_html, n = BLOCK_RE.subn("", html)
     if n == 0:
         print("[skin-manager] nothing to remove (not injected)")

@@ -4,7 +4,7 @@
 
 [English](#english) · [中文](#中文)
 
-![Version](https://img.shields.io/badge/version-1.9.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-2.0.0-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 给 [ZCode](https://zcode.z.ai) 桌面端的**十模块补丁整合包**：一个赛博朋克菜单统一管理全部补丁模块，上下键选模块、左右键切换注入/不注入，一次解包、一次重打包全部搞定。ZCode 升级后双击 `reinstall.bat` 一键重打上次选择。
 
@@ -145,8 +145,8 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 / 3.18.2（3.11.2 及更早见各模块历史 README） |
-| voice-input | 仅 3.18.0（takes over the mic button 3.18 introduced） |
+| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 / 3.18.2 / 3.19.1（3.11.2 及更早见各模块历史 README） |
+| voice-input | 3.18.0+（takes over the mic button 3.18 introduced） |
 
 > ⚠️ This is a **community third-party patch suite**. It modifies ZCode's `app.asar` and `zcode.cjs`, is **not affiliated with ZCode**, and every module can break on a ZCode update. Read [DISCLAIMER.md](DISCLAIMER.md) before use. ZCode is closed-source and updates frequently — if your version is not listed, do not patch; open an issue with your version number.
 
@@ -202,12 +202,68 @@ Runtime files (wrapper.js, auth-token, route-overrides.json, zusage pump) live u
 
 | 模块 | 已验证 ZCode 版本 |
 |---|---|
-| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 / 3.18.2 |
-| voice-input（新增） | 仅 3.18.0（接管官方 3.18 才有的麦克风按钮） |
+| 全部 10 模块 | 3.12.2 / 3.12.3 / 3.14.1 / 3.14.3 / 3.14.4 / 3.15.3 / 3.16.2 / 3.16.3 / 3.17.2 / 3.18.0 / 3.18.2 / 3.19.1 |
+| voice-input（新增） | 3.18.0+（接管官方 3.18 才有的麦克风按钮） |
 
 > ⚠️ 本包是**社区第三方补丁**，修改 ZCode 的 `app.asar` 与 `zcode.cjs`，**与 ZCode 官方无关**，且每个模块都可能随 ZCode 更新失效。使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。ZCode 是闭源应用且更新频繁——你的版本不在表内请勿打补丁，可提 Issue 告知版本号。
 
 ### 更新日志 / Changelog
+
+### v2.0.0 — ZCode 3.19.1 适配 + 安装器开场重做
+
+**ZCode 3.19.1 适配**：asar 与 cjs 各增约 166KB，跨中版本升级。10 个模块实测全通，只有两处真漂移。
+
+- 🔧 **zombie-cleanup v1.4.0**：shutdown 锚点第八代 `p(),n(Rws(_))`（`eNi→z7i→TYi→RYi→Ios→mgs→c0s→Rws`），inject / uninject 同步
+- 🔧 **edit-resend-model-fix v7.0.3**：**模块从「按版本写死压缩名」改成语义匹配**，后续升级只换标识符就不用再改代码
+  - zod 绑定 `m` → `d`、target `DR` → `$R`、modelSelection `Wc` → `qc`、mode `J4` → `fj`
+  - gate 局部变量 `d` → `p`（自动捕获，并识别「已注入态」，二次安装不再报锚点找不到）
+  - renderer 分发器 `Mi` → `Di`、草稿读取器 `ii()` → `ei()`
+  - inject 按运行时读到的真实别名拼装；verify / uninject 改为正则语义还原，不再枚举版本常量
+- 🐛 **修 edit-resend 卸载会写坏 cjs**（从 v1.6.8 起潜伏，任何版本都会触发）
+  - 现象：注入写的是 `...}),setAssistantFeedback`，卸载正则只匹配到 `})` 再自己拼一个 `,setAssistantFeedback`，原文那个没被消耗 → `setAssistantFeedback,setAssistantFeedback`
+  - 后果：cjs 永远还原不到原始字节，多出的重复键会让 Zod schema 解析失败、ZCode 起不来
+  - 修法：正则把 `,setAssistantFeedback` 纳入匹配，替换时原样重建
+- 🐛 **修 zombie-cleanup 孤儿判定恒为 false**（模块从上线起就没清掉过任何进程）
+  - `$patterns | Where-Object { $_.CommandLine -match ... }` 里 `$_` 是**模式字符串**不是进程对象，`.CommandLine` 恒为 `$null`，`-match` 恒 false
+  - 改为显式遍历进程对象，并换 `Get-CimInstance`
+- 🔧 **zombie 判据升级**：从「父进程已死」改为「沿父链上溯 8 层找不到存活 ZCode.exe」，带 PID 复用防护（父 CreationDate 必须早于子）。ZCode 用 cmd.exe shim 启动 MCP，父 cmd 活着但会话已死的情况旧判据抓不到
+- ✨ **zombie 新增兜底计划任务**：`assets/install-scheduled-task.ps1` 由 inject.py 自动注册每小时任务。此前只有正常退出钩子，崩溃或强杀就无人清理；注册失败仅告警不阻断注入
+- ✨ **skin-manager v2.3.1**：高速输入框的光晕与相位边框跟随主题色
+  - `--color-highspeed-glow-01/04/15/26` 按主题色派生（官方格式 = 主题色 hex + 透明度后缀）；3 位缩写 hex 自动展开
+  - `--color-highspeed-composer-border-pre-animation` 跟随实心主题色，与 idle/hover 边框一致
+- ✨ **pin v1.0.8**：日志降噪，`fetch patched` 与 `port busy` 收进 `ZPIN_DEBUG=1`。真机那 1157 行全部来自抢不到端口的短命进程，现在全静音；注入记录、绑定、错误、`(recovered)` 仍常开
+- ✨ **安装器开场重做**：原来的「随机点子 + 清屏 + 散装文字」换成三层景深雪花
+  - 远/中/近三层，速度、亮度、字符大小各不相同；水平位移是相位正弦而非随机游走（随机游走看起来像噪点，正弦才像风）
+  - 25% 的雪花会闪烁；标题在后 45% 逐行升起，带一道横向扫光
+  - 收尾是一整块版式（版本条 + 模块网格 + 分隔线），不再动画完就清屏重来
+  - 按任意键可跳过；非 TTY 自动降级成一行静态文字，`install.bat > log.txt` 不会写出几万个转义码
+- 🐛 **修 cjs 基线刷新只认一个 marker**（数据丢失级，2026-09-22 那次 bug 的 cjs 侧残留）
+  - 原守卫只看 `/*zro*/`。pin / zombie / usage-fallback / edit-resend 四个模块的补丁都不含它，所以「asar 模块全关、cjs 模块开」连跑两轮，会把**已打补丁的 cjs 覆盖进 `zcode.cjs.kitbak`**
+  - 改为检查全部五个 cjs marker，任一存在即不刷新
+- 🐛 **修 zombie 卸载后计划任务永久失效**：卸载只删脚本、不注销每小时任务，任务继续指向已删除的 ps1。现在卸载前先跑 `install-scheduled-task.ps1 -Unregister`
+- 🐛 **修 route-override / pin 的 UI 块永不更新**：两者 verify 只抽查几个 feature 字符串，UI 源码更新后只要抽查串还在就判 PASS，SKIP 门因此永不重部署。现在做全量 payload 比对（token 归一化后与 asset 对比），不符返回 2
+- 🐛 **修 pin verify 混合缺失塌缩**：「wrapper 陈旧 + core 缺失」原本被判为 exit 1（=未注入），卸载时直接跳过留下模块。现在只要有一项陈旧就返回 2
+- 🐛 **修 skin-manager 读文件未用 `newline=""`**：CRLF 的 index.html 会被整体改写成 LF，违反字节还原
+- 🐛 **修 zombie inject 在 asset 缺失时静默跳过**：会导致 verify 永远失败、卸载被误判为"未注入"而跳过。现在硬失败
+- 🐛 **修「有模块失败仍打 ALL SYSTEMS OPERATIONAL 且 exit 0」**：失败时改打 `COMPLETED WITH FAILURES`、列出失败模块、退出码 1
+- 🐛 **修解包/打包时两个 spinner 线程同时写屏**（球和轨迹互相闪跳）
+- 🐛 **修「ZCode 正在运行」提示太晚**：原先勾完 10 个模块按 ENTER 才告知，选择全丢。现在进菜单前就检查
+- ✨ **菜单加应用前确认**：ENTER 不再直接开始 2-3 分钟的改写，先打印完整清单（ON/OFF + 版本 + 安装路径）并要显式 `y`；全 OFF 时会明确提示「这会移除全部模块」
+- ✨ **R 键语义改为「载入上次选择」**：原先一键静默套用旧配置并立刻执行，与「重打我刚勾的」完全不符。现在只回显勾选，执行仍走 ENTER + 确认
+- ✨ **模块列表显示中文名**：直接读 `module.json` 的 `display_name`，终端编码不支持中文时自动回退英文标签
+- ✨ **reinstall.bat / uninstall.bat 补 Python 三级回退**：此前只有裸 `python`，只装 py 启动器的机器首次安装成功、升级后重打却报「'python' 不是内部或外部命令」
+- ✨ **补前置检查**：缺 npx（Node.js）和 Python < 3.10 都在动手前给出可操作的下载指引，而不是解包途中抛原始报错
+- ✨ **支持 `NO_COLOR`**：设了环境变量就完全不发颜色码；ON/OFF 文字、`[+]`/`[ ]` 标记和反白选中行本来就是主要信息载体，不依赖颜色
+- 🐛 **修语音模块热键录制中关菜单导致全键盘失灵**（P0）：录制态装了一个吞掉所有按键的全局监听，点菜单外部关闭时没解除，此后任何输入框都打不进字，唯一出口是按 Esc 且无任何提示。现在 `closeMenu()` 会先解除录制
+- 🐛 **修语音模块五个录音相关问题**
+  - 录音中切回官方模式会让本地录音变孤儿（麦克风常开、内存无限涨）→ 切模式前先结束录音
+  - IME 组合输入时按 Enter 选候选词被当发送拦下 → 检查 `isComposing` / `keyCode 229`
+  - 太短/识别失败/没听到内容三条提前退出不清 `pendingSend` → 下次录音成功时凭空补发一条
+  - 实时草稿替换按「光标往回数 N 字」定位，用户中途打字会连带删掉自己的字 → 替换前校验选中内容确实是我们注入的那段
+  - 终稿删除草稿时不先 focus 输入框，焦点在别处时会删掉那个框里的字符
+- 🧪 **322 项测试全绿**（engine 32 + modules 196 + edge 52 + incident 42 + 皮肤 smoke 21），新增覆盖：确认清单、中文名回退、zombie 部署资产全覆盖、route/pin payload 新鲜度、语音八项回归
+- 🧪 **真机 3.19.1 端到端**：10 模块注入 → verify 0 → 二次注入幂等（字节无变化）→ 卸载 → 6 处写入目标字节级还原
+- 🧪 **真实启动握手**：干净 / 五模块全打 / 还原后三种状态各跑一次真正的 `--prepare-storage` worker，均返回 `storagePrepared`，无 `is not defined`
 
 ### v1.9.0 — ZCode 3.18.2 适配 + 语音皮肤重做（voice-input v1.2.0）
 

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """edit-resend-model-fix v7: cjs + renderer verifier for zcode-mod-kit.
 
-Exit 0 means v7 is fully applied on BOTH targets (ZCode 3.18.0):
+Exit 0 means v7 is fully applied on BOTH targets:
   cjs      - builder gate admits retryTurn payload, retryTurn schema widened
   renderer - retry callback carries the live draft selection, and the edit
              side is present upstream (sanity signal for the assumed baseline)
+
+Per-build minified names (dispatcher / draft reader / gate variable) differ,
+so nothing here is keyed on a single version's identifiers: the gate is checked
+by its semantic shape, and the renderer by the marker plus the spread body.
 """
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,24 +19,27 @@ from pathlib import Path
 
 SLUG = "edit-resend-model-fix"
 
-GATE_OLD = b'let d=t.type==="editUserQuery"?t.payload:void 0'
-GATE_NEW = (b"/*[zcode-editresend-model-fix:v7]*/"
-            b'let d=t.type==="editUserQuery"||t.type==="retryTurn"?t.payload:void 0')
-RT_NEW = (b"retryTurn:m.object({target:PR,modelSelection:Wc.optional(),"
-          b"mode:H4.optional(),planEnabled:m.boolean().optional()}),"
-          b"setAssistantFeedback")
-RT_NEW_3182 = (b"retryTurn:m.object({target:DR,modelSelection:Wc.optional(),"
-               b"mode:J4.optional(),planEnabled:m.boolean().optional()}),"
-               b"setAssistantFeedback")
+# Gate: variable name varies (d in 3.18.x, p in 3.19.1) -> capture it.
+GATE_WIDENED_RE = re.compile(
+    rb'let ([A-Za-z_$][\w$]*)=t\.type==="editUserQuery"\|\|'
+    rb't\.type==="retryTurn"\?t\.payload:void 0')
+GATE_NARROW_RE = re.compile(
+    rb'let ([A-Za-z_$][\w$]*)=t\.type==="editUserQuery"\?t\.payload:void 0')
+
+# retryTurn schema widening, any zod binding + any alias set.
+RT_WIDENED_RE = re.compile(
+    rb"retryTurn:[\w$]+\.object\(\{target:[\w$]+,modelSelection:[\w$]+"
+    rb"\.optional\(\),mode:[\w$]+\.optional\(\),"
+    rb"planEnabled:[\w$]+\.boolean\(\)\.optional\(\)\}\)")
 
 NEE_UPSTREAM = (b"...o?{modelSelection:o.modelSelection,mode:o.mode,"
                 b"planEnabled:o.planEnabled}:{}")
-SEL_SPREAD = (b"...si?{modelSelection:si.modelSelection,mode:si.mode,"
-              b"planEnabled:si.planEnabled}:{}")
-SEL_SPREAD_3182 = (b"...((_r)=>_r?{modelSelection:_r.modelSelection,"
-                   b"mode:_r.mode,planEnabled:_r.planEnabled}:{})(ii()),")
-BI_FINAL = b"return Ni(`retryTurn`,{target:e," + SEL_SPREAD
-BI_FINAL_3182 = b"return Mi(`retryTurn`,{target:e," + SEL_SPREAD_3182
+# Every spread body this module has ever written (si / ii() / ei()), all via
+# the same single-evaluation IIFE so the shape is identical apart from the
+# reader name.
+SEL_SPREAD_RE = re.compile(
+    rb"\.\.\.\(\(_r\)=>_r\?\{modelSelection:_r\.modelSelection,"
+    rb"mode:_r\.mode,planEnabled:_r\.planEnabled\}:\{\}\)\((\w+)\(\)\)")
 
 
 def log(msg: str) -> None:
@@ -75,15 +83,18 @@ def main() -> None:
     if not cjs.is_file():
         fail(f"zcode.cjs not found: {cjs}")
     data = cjs.read_bytes()
-    if GATE_NEW not in data:
+    widened = GATE_WIDENED_RE.search(data)
+    narrow = GATE_NARROW_RE.search(data)
+    if not widened:
         problems.append("cjs: retryTurn payload gate not widened")
-    if GATE_OLD in data:
+    if narrow:
         problems.append("cjs: original editUserQuery-only gate still present")
-    if RT_NEW not in data and RT_NEW_3182 not in data:
+    if not RT_WIDENED_RE.search(data):
         problems.append("cjs: retryTurn schema not widened")
     if not problems:
         node_check(data, "cjs")
-        log("cjs verified: retry payload gate + widened retryTurn schema")
+        log(f"cjs verified: gate widened (var={widened.group(1).decode()}), "
+            f"retryTurn schema widened")
 
     # ---- renderer ----
     if args.dir:
@@ -94,15 +105,16 @@ def main() -> None:
                 if js.stat().st_size < 100_000:
                     continue
                 rd = js.read_bytes()
-                if (b"zcode-editresend-ui" in rd or SEL_SPREAD in rd
-                        or SEL_SPREAD_3182 in rd or NEE_UPSTREAM in rd):
+                if (b"zcode-editresend-ui" in rd
+                        or SEL_SPREAD_RE.search(rd) or NEE_UPSTREAM in rd):
                     rcands.append(js)
         if len(rcands) != 1:
             problems.append(f"renderer: {len(rcands)} candidate chunks "
                             "(expected 1)")
         else:
             rd = rcands[0].read_bytes()
-            if BI_FINAL not in rd and BI_FINAL_3182 not in rd:
+            spread = SEL_SPREAD_RE.search(rd)
+            if not spread:
                 problems.append("renderer: retry selection spread missing")
             if NEE_UPSTREAM not in rd:
                 problems.append("renderer: upstream edit fix missing "
@@ -111,8 +123,8 @@ def main() -> None:
                 problems.append("renderer: ui marker count != 1")
             if not problems:
                 node_check(rd, "renderer")
-                log(f"renderer verified: retry carries live selection "
-                    f"({rcands[0].name})")
+                log(f"renderer verified: retry carries live selection via "
+                    f"{spread.group(1).decode()}() ({rcands[0].name})")
 
     if problems:
         fail("verify failed: " + "; ".join(problems))

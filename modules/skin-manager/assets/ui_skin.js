@@ -425,15 +425,25 @@
       var hsA = rgbaFromHex(hs, 0.76);   // particle body
       var hsGlow = rgbaFromHex(hs, 0.68); // highlight glow
       if (/^#[0-9a-fA-F]{3}$|^#[0-9a-fA-F]{6}$/.test(String(hs))) {
+        // Glow ramp: the stable-phase halo is four stacked box-shadows tinted
+        // by --color-highspeed-glow-01/04/15/26 (accent hex + alpha 03/0a/26/42).
+        // Expand shorthand hex so the alpha suffix always lands on a 6-digit base.
+        var hs6 = String(hs).replace(/^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/,
+                                     "#$1$1$2$2$3$3");
         lookCss.push(
           ".theme-zai-dark{" +
           "--color-highspeed-accent:" + hs + ";" +
           "--color-highspeed-composer-border-idle:" + hs + ";" +
           "--color-highspeed-composer-border-hover:" + hs + ";" +
+          "--color-highspeed-composer-border-pre-animation:" + hs + ";" +
           "--color-highspeed-model-sweep-highlight:" + hs + ";" +
           "--color-highspeed-particle:" + hsA + ";" +
           "--color-highspeed-particle-highlight:" + hs + ";" +
           "--color-highspeed-particle-highlight-glow:" + hsGlow + ";" +
+          "--color-highspeed-glow-01:" + hs6 + "03;" +
+          "--color-highspeed-glow-04:" + hs6 + "0a;" +
+          "--color-highspeed-glow-15:" + hs6 + "26;" +
+          "--color-highspeed-glow-26:" + hs6 + "42;" +
           "}"
         );
       }

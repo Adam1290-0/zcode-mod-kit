@@ -112,8 +112,9 @@ def test_schema_alias_resolution():
           '(tgt, live_ms, live_mode) not in known' in src, src[:200])
     known = re.findall(r'\(b"([A-Za-z$][\w$]*)", b"([A-Za-z$][\w$]*)", '
                        r'b"([A-Za-z$][\w$]*)"\)', src)
-    check("both verified alias triples are declared",
-          ("PR", "Wc", "H4") in known and ("DR", "Wc", "J4") in known, str(known))
+    check("all verified alias triples are declared",
+          ("PR", "Wc", "H4") in known and ("DR", "Wc", "J4") in known
+          and ("$R", "qc", "fj") in known, str(known))
     # Only the BYTE CONSTANTS matter - the comments deliberately name Nl/Cge
     # to explain the incident.
     consts = "\n".join(_const_blocks(src))
@@ -123,17 +124,17 @@ def test_schema_alias_resolution():
           consts[:200])
 
     # uninject / verify must still recognise every payload an older run could
-    # have written, or a module can be applied but never removed.
+    # have written, or a module can be applied but never removed. Since 3.19.1
+    # they match by SHAPE (regex over `target:<alias>,modelSelection:<alias>`)
+    # rather than by literal alias, so assert the shape regexes instead of the
+    # individual alias triples.
     for name in ("uninject.py", "verify.py"):
         txt = (MODS / "edit-resend-model-fix" / name).read_text(encoding="utf-8")
-        check(f"{name} agrees on modelSelection:Wc",
-              "modelSelection:Wc.optional()" in txt)
-        check(f"{name} recognises the 3.18.0 payload (PR/H4)",
-              "target:PR,modelSelection:Wc.optional()" in txt
-              and "mode:H4.optional()" in txt)
-        check(f"{name} recognises the 3.18.2 payload (DR/J4)",
-              "target:DR,modelSelection:Wc.optional()" in txt
-              and "mode:J4.optional()" in txt)
+        check(f"{name} matches retry schema by shape, not literal alias",
+              "target:" in txt and "modelSelection:" in txt
+              and "[\\w$]+" in txt, txt[:200])
+        check(f"{name} matches the spread for any reader name (si/ii/ei)",
+              "modelSelection:_r" in txt and "_r" in txt, txt[:200])
         check(f"{name} has no stale Nl alias",
               "modelSelection:Nl.optional()" not in txt)
 

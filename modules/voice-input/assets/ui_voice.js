@@ -560,6 +560,13 @@
 
   // Select the previously injected run so the next live update replaces only
   // that run, leaving any text the user typed before/after it untouched.
+  //
+  // Walking back injectedLen characters from the caret is only correct while
+  // nothing else was typed since the last draft. If the user typed "xy" after
+  // the draft, that window covers the tail of the draft PLUS "xy", and
+  // replacing it deletes their text and leaves draft residue. So the candidate
+  // range is verified against the text we actually injected, and a mismatch
+  // refuses the in-place replacement instead of corrupting the composer.
   function selectInjected(ed) {
     if (injectedLen <= 0) return false;
     try {
@@ -570,6 +577,8 @@
       if (node.nodeType !== 3) return false;   // need a text node to walk back
       var start = end - injectedLen;
       if (start < 0) return false;
+      var candidate = node.nodeValue.slice(start, end);
+      if (lastDraftText && candidate !== lastDraftText) return false;
       var range = document.createRange();
       range.setStart(node, start);
       range.setEnd(node, end);
@@ -577,6 +586,46 @@
       sel.addRange(range);
       return true;
     } catch (e) { return false; }
+  }
+
+  // Remove the live draft run wherever it sits, without touching user text.
+  function dropDraftRun(ed) {
+    if (!lastDraftText) return;
+    // Preferred path: the caret still sits right after our run.
+    if (selectInjected(ed)) {
+      document.execCommand('delete', false);
+      return;
+    }
+    // Fallback: find the exact run in the composer's text and delete that
+    // range only. If it is not found, leave the box alone - deleting a
+    // blind caret-window is how user text got eaten before.
+    try {
+      var sel = window.getSelection();
+      var root = ed;
+      var txt = root.textContent || '';
+      var at = txt.lastIndexOf(lastDraftText);
+      if (at < 0 || !sel) return;
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+      var seen = 0, startNode = null, startOff = 0, endNode = null, endOff = 0;
+      for (var n = walker.nextNode(); n; n = walker.nextNode()) {
+        var len = n.nodeValue.length;
+        if (!startNode && seen + len > at) {
+          startNode = n; startOff = at - seen;
+        }
+        if (startNode && seen + len >= at + lastDraftText.length) {
+          endNode = n; endOff = at + lastDraftText.length - seen;
+          break;
+        }
+        seen += len;
+      }
+      if (!startNode || !endNode) return;
+      var r = document.createRange();
+      r.setStart(startNode, startOff);
+      r.setEnd(endNode, endOff);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      document.execCommand('delete', false);
+    } catch (e) { /* best effort: never damage the composer */ }
   }
 
   function pasteInto(ed, text, mode) {
@@ -668,22 +717,38 @@
     setOfficialState(null);
     var secs = samples.length / ctxRate;
     injectedLen = 0;          // the live draft is about to be replaced
-    if (secs < 0.5) { showBar('err', '太短了，未转写'); setTimeout(hideBar, 1800); return; }
+    // Every early exit below must resolve pendingSend. Leaving it set means the
+    // NEXT successful recording calls releasePendingSend() and fires a ghost
+    // Enter/click, re-sending whatever is in the box at that moment.
+    if (secs < 0.5) {
+      if (pendingSend) { pendingSend = null; }
+      showBar('err', '太短了，未转写'); setTimeout(hideBar, 1800); return;
+    }
     busy = true;
     showBar('wait', '最终识别…（' + secs.toFixed(1) + 's）');
     transcribeBody(pcm16k(samples)).then(function (j) {
       busy = false;
-      if (!j.ok) { showBar('err', '识别失败：' + (j.error || 'unknown')); setTimeout(hideBar, 3000); return; }
+      if (!j.ok) {
+        if (pendingSend) { pendingSend = null; }
+        showBar('err', '识别失败：' + (j.error || 'unknown')); setTimeout(hideBar, 3000); return;
+      }
       var text = (j.text || '').trim();
-      if (!text) { showBar('err', '没听到内容，请再试'); setTimeout(hideBar, 2000); return; }
+      if (!text) {
+        if (pendingSend) { pendingSend = null; }
+        showBar('err', '没听到内容，请再试'); setTimeout(hideBar, 2000); return;
+      }
       // Drop the live draft run we injected, then put the final text in at the
       // caret. Anything the user typed themselves stays where it was.
       var ed = findEditable();
       if (lastDraftText) {
-        injectedLen = lastDraftText.length;
         if (ed) {
-          selectInjected(ed);
-          document.execCommand('delete', false);
+          // Focus the composer first: without this the selection/execCommand
+          // acts on whatever else is focused, deleting a character in an
+          // unrelated input box. dropDraftRun also verifies content before
+          // touching anything.
+          ed.focus();
+          injectedLen = lastDraftText.length;
+          dropDraftRun(ed);
         }
         injectedLen = 0;
       }
@@ -754,8 +819,13 @@
   }, true);
 
   // Keyboard submit (Enter) while recording: same guard.
+  // IME first: a Chinese/Japanese user pressing Enter to ACCEPT A CANDIDATE
+  // fires keydown with isComposing (or keyCode 229 while composing). Swallowing
+  // that broke candidate selection and parked a bogus pendingSend, which then
+  // replayed as a ghost Enter later.
   document.addEventListener('keydown', function (ev) {
     if (!recording && !busy) return;
+    if (ev.isComposing || ev.keyCode === 229) return;
     if (ev.key !== 'Enter' || ev.shiftKey || ev.ctrlKey || ev.altKey) return;
     if (!(ev.target && ev.target.closest && ev.target.closest('.chat-composer-region'))) return;
     ev.preventDefault();
@@ -1644,6 +1714,12 @@
 
   // ---- settings menu ----
   function closeMenu() {
+    // The hotkey recorder installs a document-wide capture listener that
+    // swallows EVERY keystroke. Closing the menu without cancelling it left
+    // that listener armed with no visible UI and no way out except Escape -
+    // the whole app stopped accepting input. Always disarm here; this is the
+    // single exit path for the menu (outside click, Esc, toggle).
+    if (recordingHotkey) stopHotkeyRecord();
     if (menu) { menu.remove(); menu = null; }
     document.removeEventListener('mousedown', onDocDown, true);
     document.removeEventListener('keydown', onMenuEsc, true);
@@ -1683,6 +1759,11 @@
           + 'color:' + (on ? '#67e8f9' : '#bbb') + ';');
         btn.textContent = m[1];
         btn.addEventListener('click', function () {
+          // Switching modes mid-recording used to orphan the recording: the
+          // mic stayed open, chunks kept accumulating, and the normal stop
+          // gestures were routed to the official cloud handler. Settle the
+          // local take FIRST, then change the mode.
+          if (recording) finishRecording();
           saveConfig({ mode: m[0] }).then(function () {
             notify(m[0] === 'local' ? '已切换：本地离线识别（音频不出本机）' : '已切换：官方云端识别');
             closeMenu();

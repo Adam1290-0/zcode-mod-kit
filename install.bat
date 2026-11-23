@@ -49,12 +49,11 @@ for /f %%a in ('echo prompt $E ^| cmd') do set "ESC=%%a"
 rem ---- winter intro: drifting snow, then the frozen roster ----
 rem ---- (banner, version and every module version come from modkit.py, so
 rem ----  this file never has to be edited when a module bumps)
+rem ---- The reassurance line now lives inside splash_plate: echoing it here
+rem ---- would be wiped by the clear() the --from-splash run does next.
 %PY% modkit.py --splash %*
 if errorlevel 2 goto pyfail
 
-echo  %ESC%[38;5;153m  Every module is optional and reversible. Nothing is written outside%ESC%[0m
-echo  %ESC%[38;5;153m  your ZCode install and %%USERPROFILE%%\.zcode\plugins\.%ESC%[0m
-echo(
 %PY% modkit.py --from-splash %*
 if errorlevel 1 goto pyfail
 

@@ -277,6 +277,29 @@ def verify(out_dir: Path, cjs_path: Path | None) -> int:
             if ok:
                 log("renderer: UI block OK (baked token + findEditPanel + upsert "
                     "+ MutationObserver + ad banner)")
+            # Payload freshness. The feature spot-checks above pass on ANY
+            # past version of this block, so an updated ui_route_override.js
+            # would never be re-deployed: this verifier is the only thing the
+            # kit's SKIP gate consults. Normalise the baked token back to a
+            # placeholder and compare the payload with the asset. Stale = 2,
+            # never 1 - 1 would make uninstall skip a live module.
+            if ok and end > idx:
+                asset_js = (Path(__file__).resolve().parent / "assets"
+                            / "ui_route_override.js")
+                if asset_js.is_file():
+                    want = asset_js.read_text(encoding="utf-8", newline="").strip()
+                    got = block
+                    got = got.replace(RENDERER_MARKER, "", 1)
+                    # The baked prologue is `var ZRO_TOKEN="<hex>";\n` - the
+                    # trailing semicolon belongs to it. Stripping only the
+                    # quoted assignment left a stray ";" and made every fresh
+                    # injection compare unequal (self-inflicted STALE).
+                    got = re.sub(r'var ZRO_TOKEN="[0-9a-f]{64}";[ \t]*\r?\n',
+                                 "", got, count=1)
+                    if got.strip().rstrip("</script>").strip() != want:
+                        log("renderer: STALE - block payload differs from "
+                            "assets/ui_route_override.js (redeploy needed)")
+                        return 2
 
     if ok:
         log("verify: PASS")

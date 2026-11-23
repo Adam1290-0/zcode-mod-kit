@@ -51,7 +51,7 @@ N_ORANGE = "\x1b[38;5;208m"
 AD_URL = "https://sharellm.net/sign-up?aff=wb5b"
 # mod-kit's own version: single machine-readable source (README badge/changelog
 # bump in lockstep). Baked into the skin ui at inject time for the update banner.
-KIT_VERSION = "1.9.0"
+KIT_VERSION = "2.0.0"
 AD_INTRO = [
     ("SHARELLM.NET", N_PINK + BOLD),
     ("  AI model sharing platform - massive models, one subscription", N_CYAN),
@@ -82,7 +82,7 @@ ORDER_HINT = {
     "edit-resend-model-fix": "drops 3 stale fields in zcode.cjs SJo re-run",
     "usage-stats-fallback": "Xkr 2 insertions in zcode.cjs usage query",
     "zombie-cleanup": "shutdown handler fires powershell cleanup script",
-    "voice-input": "renderer button + main dynamic import (3.18.0 only)",
+    "voice-input": "renderer button + main dynamic import (ZCode 3.18+)",
 }
 
 BANNER_LINES = [
@@ -96,9 +96,14 @@ GRADIENT = [N_PINK, N_PURPLE, N_CYAN, N_BLUE]
 WINTER_GRADIENT = ["\x1b[38;5;111m", "\x1b[38;5;117m",
                    "\x1b[38;5;153m", "\x1b[38;5;195m"]
 
+# NO_COLOR (no-color.org): respected by setting every palette entry to "" so
+# no code path has to test for it. The ON/OFF words, the [+] / [ ] markers and
+# the reverse-video selected row all still carry the information without colour.
+NO_COLOR = bool(os.environ.get("NO_COLOR"))
+
 
 def c(code, text):
-    return code + text + RESET
+    return text if NO_COLOR else code + text + RESET
 
 
 def gradient_banner():
@@ -155,69 +160,164 @@ def clear():
 
 
 # ---------------------------------------------------------------------------
-# winter intro: snowfall + frozen module roster
+# winter intro: layered snowfall + a light sweep across the wordmark
 # ---------------------------------------------------------------------------
-SNOW_CHARS = [".", ".", "*", "*", "+", "o", "O", "*"]
-SNOW_SHADES = ["\x1b[38;5;153m", "\x1b[38;5;159m", "\x1b[38;5;195m",
-               "\x1b[38;5;231m"]
+# Three depth planes. Far flakes are dim, small and drift slowly; near flakes
+# are bright, large and fall fast. That parallax is what separates "snow" from
+# "random dots": without it every flake moves at the same rate and the eye
+# reads it as noise.
+SNOW_PLANES = (
+    # (weight, chars,        dim colour,        bright colour,  speed band)
+    (0.50, ("\u00b7", "."), "\x1b[38;5;60m", "\x1b[38;5;153m", (0.30, 0.55)),
+    (0.32, ("*", "+"),      "\x1b[38;5;110m", "\x1b[38;5;159m", (0.55, 0.95)),
+    (0.18, ("*", "o", "O"), "\x1b[38;5;153m", "\x1b[38;5;231m", (0.95, 1.55)),
+)
+SNOW_SPARKLE = "\x1b[38;5;231m"
+
+BANNER_GRAD = ("\x1b[38;5;117m", "\x1b[38;5;153m",
+               "\x1b[38;5;159m", "\x1b[38;5;195m",
+               "\x1b[38;5;231m")
+
+WINTER_WORDS = ("winter edition", "snow on the wire",
+                "cold boot", "frost / 冬")
 
 
 def _winter_palette():
-    """Cold neon for the winter months, the usual one otherwise."""
+    """Cold neon for the winter months, the usual palette otherwise."""
     import datetime
-    m = datetime.date.today().month
-    return m in (11, 12, 1, 2)
+    return datetime.date.today().month in (11, 12, 1, 2)
 
 
-def snowfall(seconds=2.4, rows=14, cols=68, fps=20):
-    """Animate drifting snow inside a framed box.
-
-    Runs on the alternate screen so the terminal is left exactly as we found
-    it, and degrades to a single static frame when output is not a TTY (so
-    piping the installer to a log does not emit thousands of escape codes).
-    """
+def _make_flakes(rows, cols, count):
+    """Spawn flakes with a depth plane each; y starts above the top edge so the
+    first frame already has snow in flight instead of an empty sky."""
     import random
-    import time
+    flakes = []
+    for _ in range(count):
+        r = random.random()
+        acc = 0.0
+        plane = SNOW_PLANES[-1]
+        for p in SNOW_PLANES:
+            acc += p[0]
+            if r <= acc:
+                plane = p
+                break
+        _, chars, dim, bright, (vlo, vhi) = plane
+        flakes.append({
+            "x": random.uniform(0, cols - 1),
+            "y": random.uniform(-rows, rows - 1),
+            "v": random.uniform(vlo, vhi),
+            # horizontal sway is a phase-shifted sine, not a random walk:
+            # a walk makes flakes jitter like static, a sine reads as wind
+            "sway_amp": random.uniform(0.0, 1.6),
+            "sway_ph": random.uniform(0, 6.283),
+            "sway_sp": random.uniform(0.03, 0.11),
+            "ch": random.choice(chars),
+            "col": bright if random.random() < 0.30 else dim,
+            "tw": random.random() < 0.25,      # twinkles while falling
+            "ph": random.uniform(0, 6.283),
+        })
+    return flakes
+
+
+def _render_frame(grid, rows, cols, t):
+    """Compose one frame: snow, then the wordmark on a cleared plateau."""
+    out = ["\x1b[H"]
+    for y in range(rows):
+        out.append("  " + "".join(grid[y]) + RESET + "\n")
+    return "".join(out)
+
+
+def snowfall(seconds=3.0, rows=15, cols=76, fps=24, reveal=True):
+    """Layered snow that settles, then the wordmark rises through it.
+
+    Runs on the alternate screen and always restores the terminal. When stdout
+    is not a TTY it prints one static line instead of thousands of escape
+    codes, so `install.bat > log.txt` stays readable.
+    """
+    import math
+    import random
 
     if not sys.stdout.isatty():
-        print(c(N_CYAN, "  *  .  *   冬天快乐 / happy winter   *  .  *"))
+        print(c(N_CYAN, "  *  .  *   winter edition  *  .  *"))
         return
 
-    flakes = []
-    for _ in range(max(18, cols // 3)):
-        flakes.append({
-            "x": random.randrange(cols),
-            "y": random.randrange(-rows, rows),
-            "v": random.choice((0.35, 0.5, 0.7, 0.9)),
-            "drift": random.choice((-1, 0, 0, 1)),
-            "ch": random.choice(SNOW_CHARS),
-            "shade": random.choice(SNOW_SHADES),
-        })
+    flakes = _make_flakes(rows, cols, max(40, int(cols * 0.85)))
+    banner_top = max(1, rows // 2 - 3)
+    banner_w = max(len(ln) for ln in BANNER_LINES)
+    banner_left = max(2, (cols - banner_w) // 2)
 
-    sys.stdout.write("\x1b[?1049h")          # alternate screen
-    sys.stdout.write("\x1b[?25l")            # hide cursor
+    sys.stdout.write("\x1b[?1049h")     # alternate screen
+    sys.stdout.write("\x1b[?25l")       # hide cursor
+    skip_hint = "  press any key to skip"
     try:
         frames = int(seconds * fps)
         for f in range(frames):
+            # A 3 second intro is pleasant once and annoying on the tenth
+            # reinstall. Poll the keyboard without consuming input when there
+            # is no console (msvcrt is None under a redirected stdout).
+            if msvcrt is not None:
+                try:
+                    if msvcrt.kbhit():
+                        msvcrt.getwch()
+                        break
+                except Exception:
+                    pass
+            t = f / fps
             grid = [[" "] * cols for _ in range(rows)]
             for s in flakes:
                 s["y"] += s["v"]
-                if random.random() < 0.18:
-                    s["x"] += s["drift"]
-                if s["y"] >= rows:
-                    s["y"] = -1
-                    s["x"] = random.randrange(cols)
-                if 0 <= int(s["y"]) < rows:
-                    grid[int(s["y"])][s["x"] % cols] = s["shade"] + s["ch"] + RESET
-            out = ["\x1b[H"]
-            out.append("\n")
-            for ln in grid:
-                out.append("   " + "".join(ln) + "\n")
-            # fading winter greeting on the last third
-            if f > frames * 0.55:
-                msg = ("*  冬 天 快 乐  /  h a p p y   w i n t e r  *")
-                enc = (msg[:max(0, (f - int(frames * 0.55)) * 2)]).center(cols)
-                out.append("   " + c(N_CYAN + BOLD, enc) + "\n")
+                if s["y"] >= rows + 1:
+                    s["y"] = -1.0 - random.random() * 3
+                    s["x"] = random.uniform(0, cols - 1)
+                x = int(s["x"] + math.sin(t * s["sway_sp"] * 6.283 + s["sway_ph"])
+                        * s["sway_amp"])
+                y = int(s["y"])
+                if not (0 <= y < rows and 0 <= x < cols):
+                    continue
+                ch = s["ch"]
+                col = s["col"]
+                if s["tw"] and math.sin(t * 5.0 + s["ph"]) > 0.72:
+                    ch, col = "+", SNOW_SPARKLE
+                grid[y][x] = col + ch + RESET
+
+            # wordmark: rises line by line over the last 45% of the intro,
+            # each line lit by a moving highlight band (a static gradient on a
+            # still image looks like a screenshot; the sweep makes it "boot")
+            if reveal and f > frames * 0.38:
+                prog = (f - frames * 0.38) / max(1, frames * 0.62)
+                shown = int(math.ceil(prog * len(BANNER_LINES)))
+                sweep = (t * 26.0) % (banner_w + 24) - 12
+                for i, ln in enumerate(BANNER_LINES[:shown]):
+                    y = banner_top + i
+                    if not (0 <= y < rows):
+                        continue
+                    for j in range(cols):
+                        grid[y][j] = " "
+                    for j, ch in enumerate(ln):
+                        if ch == " ":
+                            continue
+                        x = banner_left + j
+                        if not (0 <= x < cols):
+                            continue
+                        d = abs(j - sweep)
+                        shade = BANNER_GRAD[0]
+                        if d < 3:
+                            shade = BANNER_GRAD[4]
+                        elif d < 9:
+                            shade = BANNER_GRAD[3]
+                        elif d < 16:
+                            shade = BANNER_GRAD[2]
+                        grid[y][x] = shade + ch + RESET
+
+            out = [_render_frame(grid, rows, cols, t)]
+            if reveal and f > frames * 0.72:
+                word = random.choice(WINTER_WORDS)
+                pad = max(0, (cols - len(word) - 4) // 2)
+                out.append("  " + " " * pad +
+                           c("\x1b[38;5;195m" + BOLD, "~ " + word + " ~") + "\n")
+            if f < frames * 0.5:
+                out.append(c(DIM, skip_hint) + "\n")
             sys.stdout.write("".join(out))
             sys.stdout.flush()
             time.sleep(1.0 / fps)
@@ -225,33 +325,70 @@ def snowfall(seconds=2.4, rows=14, cols=68, fps=20):
         pass
     finally:
         sys.stdout.write("\x1b[?25h")
-        sys.stdout.write("\x1b[?1049l")      # back to the normal screen
+        sys.stdout.write("\x1b[?1049l")   # back to the normal screen
         sys.stdout.flush()
 
 
 def module_roster(mods):
     """One line per module: version + what it does. Screen-reader friendly."""
     lines = []
+    width = max(len(m.get("version", "")) for m in mods) if mods else 0
+    # Name column width must follow the longest label (EDITFIX/HISTFIX are 7),
+    # otherwise the version runs into the name: "EDITFIXv7.0.3".
+    name_w = max(len(LABELS.get(m["slug"], m["slug"]).partition(" ")[0])
+                 for m in mods) if mods else 7
     for m in mods:
         slug = m["slug"]
         ver = m.get("version", "")
         label = LABELS.get(slug, slug)
         name, _, desc = label.partition(" ")
-        lines.append("  " + c(N_CYAN, "%-7s" % name) +
-                     c(DIM, "v%-8s" % ver) + c(WHITE, desc.strip()))
+        lines.append("   " + c(N_CYAN + BOLD, name.ljust(name_w + 2)) +
+                     c(DIM, ("v%s" % ver).ljust(width + 2)) +
+                     c(WHITE, desc.strip()))
     return "\n".join(lines)
+
+
+def _rule(width=74, ch="\u2500"):
+    return c("\x1b[38;5;60m", "   " + ch * width)
+
+
+def splash_plate(mods, kit_version=""):
+    """The single screen the user sees before the menu.
+
+    One composition instead of the old "animation, clear, loose text": banner,
+    a version rule, the module grid and a hint line, all inside one frame so it
+    still reads as a designed plate after the snow has gone.
+    """
+    winter = _winter_palette()
+    out = [""]
+    if winter:
+        out.append(c("\x1b[38;5;54m", "   ~  ") +
+                   c("\x1b[38;5;117m", "winter edition") +
+                   c("\x1b[38;5;54m", "  ~"))
+        out.append("")
+    out.append(gradient_banner())
+    out.append("")
+    left = "  zcode mod kit"
+    right = ("v%s" % kit_version) if kit_version else ""
+    out.append(c(DIM, "   " + left.ljust(58) + right))
+    out.append(_rule())
+    out.append("")
+    out.append(c(MAGENTA + BOLD, "   MODULES") +
+               c(DIM, "  %d loaded  ·  every one optional and reversible"
+                 % len(mods)))
+    out.append("")
+    out.append(module_roster(mods))
+    out.append("")
+    out.append(c(DIM, "   every module is optional and reversible; nothing is "
+                      "written outside"))
+    out.append(c(DIM, "   your ZCode install and ~/.zcode/plugins."))
+    out.append(_rule())
+    return "\n".join(out)
 
 
 def winter_banner(mods):
     """Banner block printed once before the interactive menu."""
-    out = [gradient_banner()]
-    if _winter_palette():
-        out.append(c(N_CYAN, "  ~ winter edition  " + "*  .  *  .  *"))
-    out.append("")
-    out.append(c(MAGENTA + BOLD, "  MODULES  (%d)" % len(mods)))
-    out.append(module_roster(mods))
-    out.append("")
-    return "\n".join(out)
+    return splash_plate(mods, KIT_VERSION) + "\n"
 
 
 def hide_cursor():
@@ -378,7 +515,8 @@ def find_zcode_root():
 # 3.17.2 (2026-11-02): same four targets; full roundtrip re-validated, no drift.
 # 3.18.0 (2026-11-10): same four targets; full roundtrip re-validated, no drift.
 # 3.18.2 (2026-11-16): zombie anchor d()/c0s, edit-resend DR + Mi/ii() aliases.
-VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4", "3.15.3", "3.16.2", "3.16.3", "3.17.2", "3.18.0", "3.18.2"}
+# 3.19.1 (2026-11-23): zod binding m->d, edit-resend $R/qc/fj + Di/ei(), gate var p.
+VERIFIED_VERSIONS = {"3.12.2", "3.12.3", "3.14.1", "3.14.3", "3.14.4", "3.15.3", "3.16.2", "3.16.3", "3.17.2", "3.18.0", "3.18.2", "3.19.1"}
 
 
 def read_asar_version(asar_path):
@@ -442,6 +580,13 @@ ASAR_HOST_MARKER = "zcode-snapshot-kill-switch"   # snapshot-kill -> out/host/in
 # usage-bar and voice-input both append a dynamic-import line to the same file.
 ASAR_MAIN_MARKERS = ("[zusage]", "voice-main.cjs")
 ASAR_CHUNK_MARKERS = ("zcode-editresend-ui",)     # edit-resend   -> out/renderer/assets/*.js chunk
+
+# Every marker a module writes into zcode.cjs. Used to decide whether the loose
+# cjs is a clean pre-patch baseline before refreshing zcode.cjs.kitbak. One
+# marker is not enough: five modules write this file and any one of them makes
+# it a patched baseline.
+CJS_MARKERS = ("/*zro*/", "/*zpin*/", "zusage-fb-day",
+               "zcode-zombie-cleanup", "zcode-editresend-model-fix")
 
 
 def asar_is_clean(asar_path):
@@ -548,10 +693,10 @@ def _ball_positions():
 
 
 SPINNER_TIPS = [
-    "tip: press R anytime to re-apply your last selection in one shot",
-    "tip: runtime files live in ~/.zcode/plugins - the kit folder is movable",
-    "tip: OFF on an injected module uninjects it surgically",
-    "tip: each ZCode update wipes patches - reinstall.bat brings them all back",
+    "2-3 minutes is normal - app.asar is ~385 MB",
+    "runtime files live in ~/.zcode/plugins - the kit folder is movable",
+    "OFF on an injected module uninjects it surgically",
+    "each ZCode update wipes patches - reinstall.bat brings them all back",
 ]
 
 
@@ -584,15 +729,6 @@ def _spin(label):
         time.sleep(0.06)
     sys.stdout.write("\r\x1b[K")
     sys.stdout.flush()
-
-
-def wait_screen(first_line):
-    """Full idle screen shown while a 2-3 min asar step runs:
-    animated ball + sharellm ad block with a clickable link."""
-    _spinner_stop.clear()
-    t = threading.Thread(target=_spin, args=(first_line,), daemon=True)
-    t.start()
-    return t
 
 
 def run_asar(args, cwd, label):
@@ -721,10 +857,17 @@ def _apply_locked(mods, selection, paths, interactive):
     elif asar_is_clean(paths.asar):
         print(c(CYAN, "[BACKUP] current asar has no kit injections (ZCode update) - refreshing kitbak"))
         shutil.copy2(paths.asar, paths.asar_bak)
+        # The cjs baseline needs the SAME all-modules check as the asar, not a
+        # single marker. Checking only /*zro*/ meant "pin-only" or
+        # "zombie-only" runs copied a PATCHED cjs into zcode.cjs.kitbak - the
+        # 2026-09-22 data-loss bug, still live on the cjs side. A ZCode update
+        # replaces both files together, so the first post-update run was fine;
+        # the second consecutive run with asar modules OFF was not.
         if paths.cjs_bak.exists() and paths.cjs.exists():
             with open(paths.cjs, "rb") as _f:
-                if b"/*zro*/" not in _f.read(600):
-                    shutil.copy2(paths.cjs, paths.cjs_bak)
+                head = _f.read(4000)
+            if not any(m in head for m in CJS_MARKERS):
+                shutil.copy2(paths.cjs, paths.cjs_bak)
     if not paths.unpacked_bak.exists() and paths.unpacked.exists():
         shutil.copytree(paths.unpacked, paths.unpacked_bak)
     cjs_needed = any("zcode-cjs" in m.get("targets", []) and selection.get(m["slug"], True)
@@ -733,17 +876,30 @@ def _apply_locked(mods, selection, paths, interactive):
         shutil.copy2(paths.cjs, paths.cjs_bak)
 
     # ---- extract once -------------------------------------------------------
+    # npx is a hard prerequisite (README lists it) but nothing checked for it,
+    # so a machine without Node sailed through the menu and died with a raw
+    # "npx is not recognized" deep inside the extract output. Fail early with
+    # the same actionable wording the Python guard uses.
+    if not shutil.which("npx"):
+        print(c(RED, "[ERROR] npx not found - Node.js is required."))
+        print(c(YELLOW, "  Install from https://nodejs.org/ (LTS), tick"))
+        print(c(YELLOW, "  'Add to PATH' during setup, then re-open this window."))
+        return 1
     if paths.work.exists():
         shutil.rmtree(paths.work)
     print(c(CYAN, "[EXTRACT]") + " " + c(BOLD, "unpacking app.asar - this takes 2-3 minutes"))
     print_ad_block()
-    wt = wait_screen("unpacking asar")
     rc, out = run_asar(f'extract "{paths.asar}" "{paths.work}"', paths.asar.parent,
                        "unpacking asar")
-    _spinner_stop.set()
-    wt.join(timeout=1)
     if rc != 0:
+        # Do not leave a half-extracted tree behind: the next run would rmtree
+        # it anyway, but a partial tree on disk looks like a corrupt install
+        # to anyone inspecting it.
+        shutil.rmtree(paths.work, ignore_errors=True)
         print(c(RED, "[ERROR] extract failed:") + "\n" + out[-2000:])
+        print(c(YELLOW, "  Common causes: not enough disk space, ZCode running,"))
+        print(c(YELLOW, "  no admin rights on Program Files, or npx cannot reach"))
+        print(c(YELLOW, "  the npm registry to fetch @electron/asar."))
         return 1
 
     # ---- run modules --------------------------------------------------------
@@ -793,14 +949,11 @@ def _apply_locked(mods, selection, paths, interactive):
     print()
     print(c(CYAN, "[PACK]") + " " + c(BOLD, "repacking app.asar - this takes 2-3 minutes"))
     print_ad_block()
-    wt = wait_screen("repacking asar")
     if paths.unpacked.exists():
         shutil.rmtree(paths.unpacked)
     rc, out = run_asar(
         f'pack "{paths.work}" "{paths.asar}" --unpack "*.{{node,dll,exe}}"',
         paths.asar.parent, "repacking asar")
-    _spinner_stop.set()
-    wt.join(timeout=1)
     if rc != 0:
         print(c(RED, "[ERROR] pack failed - restoring backup"))
         shutil.copy2(paths.asar_bak, paths.asar)
@@ -826,8 +979,15 @@ def _apply_locked(mods, selection, paths, interactive):
     save_config(cfg)
 
     # ---- summary -------------------------------------------------------------
+    any_fail = any(s == "FAIL" for _, s in results)
     print()
-    print(c(BG_GREEN, "  ALL SYSTEMS OPERATIONAL  "))
+    # A green "ALL SYSTEMS OPERATIONAL" over a failed module is worse than no
+    # banner at all: the user closes the window believing the install worked,
+    # and the exit code stayed 0 so a script could not tell either.
+    if any_fail:
+        print(c(BG_RED, "  COMPLETED WITH FAILURES  "))
+    else:
+        print(c(BG_GREEN, "  ALL SYSTEMS OPERATIONAL  "))
     for slug, state in results:
         icon = {"INJECT": c(GREEN, "[+]"), "REMOVE": c(RED, "[-]"),
                 "SKIP": c(YELLOW, "[=]"), "OFF": c(DIM, "[.]"),
@@ -835,11 +995,26 @@ def _apply_locked(mods, selection, paths, interactive):
                 "FAIL": c(RED, "[!]")}[state]
         print(f"    {icon}  {c(CYAN, slug):24s} {state}")
     print()
-    print(c(DIM, "  ZCode was updated? Just re-run reinstall.bat -"))
-    print(c(DIM, "  it re-applies this exact selection in one shot."))
+    if any_fail:
+        failed = [s for s, st in results if st == "FAIL"]
+        print(c(RED, "  These modules did not complete: " + ", ".join(failed)))
+        print(c(YELLOW, "  Re-run install.bat and open an issue with the log above."))
+        print(c(DIM, "  Your previous asar backup is intact: app.asar.kitbak."))
+    # The footer has to match what just happened: telling someone who removed
+    # every module to "re-run reinstall.bat" reads like the uninstall failed.
+    injected = any(s == "INJECT" for _, s in results)
+    removed = any(s == "REMOVE" for _, s in results)
+    if injected:
+        print(c(DIM, "  ZCode was updated? Just re-run reinstall.bat -"))
+        print(c(DIM, "  it re-applies this exact selection in one shot."))
+        print(c(DIM, "  Start ZCode now: the modules load at boot."))
+    elif removed:
+        print(c(DIM, "  Every selected module was removed; app.asar and"))
+        print(c(DIM, "  zcode.cjs are back to the official bytes."))
+        print(c(DIM, "  Want them back? Run install.bat and pick modules again."))
     print()
     print_ad_block(clickable_link=True)
-    return 0
+    return 1 if any_fail else 0
 
 
 def uninstall_all(mods, paths):
@@ -854,15 +1029,33 @@ def uninstall_all(mods, paths):
 # cyberpunk TUI
 # ---------------------------------------------------------------------------
 
-def render(mods, selection, idx, config_sel):
+def display_name(mod):
+    """Menu label: the module's own Chinese display_name when the console can
+    show it, else the ASCII label. The bat sets codepage 65001, but a redirected
+    or legacy console may still be cp936/cp437 - encoding failure falls back
+    instead of crashing the menu with UnicodeEncodeError."""
+    name = (mod.get("display_name") or "").strip()
+    if not name:
+        return LABELS.get(mod["slug"], mod["slug"]).partition(" ")[0]
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        name.encode(enc)
+    except (UnicodeEncodeError, LookupError):
+        return LABELS.get(mod["slug"], mod["slug"]).partition(" ")[0]
+    return name
+
+
+def render(mods, selection, idx, config_sel, dirty=False):
     clear()
     print(gradient_banner())
     print(c(MAGENTA, "  zcode-mod-kit  ::  modular patcher console") +
           (c(N_CYAN, "   *  .  *  winter") if _winter_palette() else ""))
     print(c(N_CYAN, "  " + "=" * 36))
     print()
-    print(c(DIM, "  UP/DOWN pick module    LEFT/RIGHT toggle    ENTER apply"))
-    print(c(DIM, "  A all-on    N all-off    R reinstall-last    O sponsor    Q quit"))
+    print(c(DIM, "  UP/DOWN pick    LEFT/RIGHT or SPACE toggle    ENTER review & apply"))
+    print(c(DIM, "  A all-on    N all-off    R load last selection    O sponsor    Q/ESC quit"))
+    if dirty:
+        print(c(YELLOW, "  * selections differ from the last run - press R to go back to it"))
     print()
     for i, mod in enumerate(mods):
         slug = mod["slug"]
@@ -870,9 +1063,10 @@ def render(mods, selection, idx, config_sel):
         cur = " " + c(DIM, "last-run: on ") if config_sel.get(slug, True) else \
               " " + c(DIM, "last-run: off")
         status = c(BG_GREEN, "  ON  ") if on else c(BG_RED, " OFF  ")
+        name = display_name(mod)
         ver = mod.get("version", "")
         ver_txt = c(DIM, f"v{ver}") if ver else ""
-        row = f"  {status}  {LABELS.get(slug, slug):44s}{ver_txt:10s}{cur}"
+        row = f"  {status}  {name:34s}{ver_txt:10s}{cur}"
         if i == idx:
             row = "\x1b[7m" + row + RESET
         print(row)
@@ -889,11 +1083,15 @@ def menu(mods):
     config_sel = cfg.get("selections", {})
     if config_sel:
         selection = {m["slug"]: config_sel.get(m["slug"], True) for m in mods}
+    # A selection that differs from the last run is the normal case on a first
+    # install; only warn once the user has actually changed something, so the
+    # hint does not cry wolf on every redraw.
+    dirty = False
     idx = 0
     hide_cursor()
     try:
         while True:
-            render(mods, selection, idx, config_sel)
+            render(mods, selection, idx, config_sel, dirty)
             key = get_key()
             if key == "quit" or key == "esc":
                 return None
@@ -904,21 +1102,75 @@ def menu(mods):
             elif key == "toggle" or key == "left" or key == "right":
                 slug = mods[idx]["slug"]
                 selection[slug] = not selection[slug]
+                dirty = True
             elif key == "allon":
                 for m in mods:
                     selection[m["slug"]] = True
+                dirty = True
             elif key == "alloff":
                 for m in mods:
                     selection[m["slug"]] = False
+                dirty = True
             elif key == "enter":
-                return selection
+                # Never start a 2-3 minute rewrite of a 300 MB app on a single
+                # keystroke. Show exactly what will happen and require an
+                # explicit y. This is the last chance to notice "all 10 ON".
+                show_cursor()
+                if confirm_plan(mods, selection):
+                    return selection
+                hide_cursor()
             elif key == "reinstall":
-                return config_sel or selection
+                # "load last selection", not "apply it": the user sees the
+                # restored ticks and still confirms with ENTER. Silently
+                # applying an old config on one keystroke was a footgun.
+                if not config_sel:
+                    show_cursor()
+                    print(c(YELLOW, "\n  no saved selection yet - "
+                                    "run install.bat once first.\n"))
+                    input("  press ENTER to go back to the menu ")
+                    hide_cursor()
+                    continue
+                selection = {m["slug"]: config_sel.get(m["slug"], True)
+                             for m in mods}
+                dirty = True
             elif key == "openad":
+                show_cursor()
                 try_open_ad()
-                time.sleep(1.5)
+                input("  press ENTER to go back to the menu ")
+                hide_cursor()
     finally:
         show_cursor()
+
+
+def confirm_plan(mods, selection):
+    """Print the exact plan and ask for y. Returns True to proceed."""
+    clear()
+    on = [m for m in mods if selection.get(m["slug"], True)]
+    off = [m for m in mods if not selection.get(m["slug"], True)]
+    print()
+    print(c(MAGENTA + BOLD, "  REVIEW"))
+    print(c(DIM, "  " + "-" * 66))
+    print("  ZCode install : " + c(WHITE, str(find_zcode_root() or "NOT FOUND")))
+    print("  Modules ON    : " + c(GREEN, str(len(on))) +
+          "    OFF: " + c(DIM, str(len(off))))
+    print()
+    for m in mods:
+        flag = selection.get(m["slug"], True)
+        mark = c(GREEN, " [+] ") if flag else c(DIM, " [ ] ")
+        ver = c(DIM, "v" + m.get("version", ""))
+        print("  " + mark + c(WHITE if flag else DIM, display_name(m)) +
+              "  " + ver)
+    print()
+    if not on:
+        print(c(YELLOW, "  Nothing is ON - this will REMOVE every module "
+                        "currently installed."))
+        print()
+    print(c(DIM, "  This rewrites app.asar and zcode.cjs. ZCode must be closed."))
+    try:
+        ans = input(c(BOLD, "  apply this plan? [y/N] ") + "").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return ans in ("y", "yes")
 
 
 def get_key():
@@ -950,6 +1202,15 @@ def get_key():
 
 def main():
     vt_on()
+    # The bat only checks that *some* python exists; a 3.8 install would then
+    # die on a 3.10 f-string/typing difference far from this line. Check once,
+    # up front, with the same actionable wording.
+    if sys.version_info < (3, 10):
+        print(c(RED, "[ERROR] Python 3.10+ required, found %d.%d."
+                % sys.version_info[:2]))
+        print(c(YELLOW, "  Install from https://www.python.org/downloads/ and"))
+        print(c(YELLOW, "  tick 'Add python.exe to PATH' during setup."))
+        return 1
     mods = load_modules()
 
     # --splash: winter intro + roster, then hand control back to install.bat.
@@ -962,12 +1223,9 @@ def main():
         if _winter_palette() and "--no-snow" not in args:
             snowfall()
         clear()
-        print(gradient_banner())
-        print(c(N_CYAN, "  ~ winter edition  " + "*  .  *  .  *")
-              if _winter_palette() else "")
-        print(c(MAGENTA + BOLD, "  MODULES  (%d)" % len(mods)))
-        print(module_roster(mods))
-        print()
+        print(splash_plate(mods, KIT_VERSION))
+        print(c(DIM, "   painting done - the menu opens next."))
+        time.sleep(0.8)
         return
 
     root = find_zcode_root()
@@ -1005,6 +1263,25 @@ def main():
     if _winter_palette() and "--no-snow" not in args and "--from-splash" not in args:
         clear()
         snowfall()
+
+    # Check the process BEFORE the menu, not after. Discovering "ZCode is
+    # running" only after ticking ten modules throws the whole selection away
+    # and makes the user redo it in a fresh window.
+    if zcode_running():
+        clear()
+        print()
+        print(c(RED, "  ZCode is running."))
+        print(c(YELLOW, "  Fully quit it first: right-click the tray icon -> Quit"))
+        print(c(YELLOW, "  (closing the window is not enough - the process stays)."))
+        print()
+        try:
+            input(c(DIM, "  press ENTER after quitting, or Ctrl+C to abort "))
+        except (EOFError, KeyboardInterrupt):
+            return
+        if zcode_running():
+            print(c(RED, "  still running - aborting. Nothing was changed."))
+            return
+
     clear()
     try:
         selection = menu(mods)

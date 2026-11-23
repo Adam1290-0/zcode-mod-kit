@@ -57,6 +57,15 @@ function log(msg) {
     rotateIfNeeded();
   } catch (_) { /* logging must never break requests */ }
 }
+// ZCode spawns dozens of short-lived processes that each require this wrapper
+// (plugin hosts, MCP hosts, the storage-prep worker). Every one of them used to
+// append "fetch patched" + "port busy" even though only ONE process ever owns
+// the port: measured on 3.19.1 that was 2464 of 4848 log lines (51%) from 1100
+// processes that never served a single UI request. Those two are expected-by-
+// design states, so they only make noise; keep them behind ZPIN_DEBUG=1 and
+// leave every failure / recovery / injection line at the always-on level.
+const DEBUG = process.env.ZPIN_DEBUG === "1";
+function debugLog(msg) { if (DEBUG) log(msg); }
 const _logLast = {};
 function throttleLog(msg) { // can be called per request: keep the log readable
   const now = Date.now();
@@ -157,7 +166,7 @@ if (COMPONENTS === "all" && typeof globalThis.fetch === "function" && !globalThi
       return originalFetch(input, init);
     }
   };
-  log("fetch patched (pin), components=" + COMPONENTS);
+  debugLog("fetch patched (pin), components=" + COMPONENTS);
 }
 
 // ---------------------------------------------------------------- config server
@@ -309,7 +318,7 @@ function startServer() {
       // UI would be left without any server. Retry on a timer so one of the
       // surviving processes takes over instead of skipping forever.
       if (!retryTimer) {
-        log("pin server: port busy, retrying every 3s");
+        debugLog("pin server: port busy, retrying every 3s");
         retryTimer = setInterval(function () {
           try {
             server.listen(SERVER_PORT, "127.0.0.1");

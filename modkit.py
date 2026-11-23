@@ -1134,9 +1134,15 @@ def _apply_locked(mods, selection, paths, interactive):
         # replaces both files together, so the first post-update run was fine;
         # the second consecutive run with asar modules OFF was not.
         if paths.cjs_bak.exists() and paths.cjs.exists():
+            # Scan the WHOLE file, not a head window. Measured on a fully
+            # patched 3.19.1 cjs: zcode-zombie-cleanup sits at ~510 KB,
+            # zusage-fb-day at ~1.66 MB, zcode-editresend at ~15.07 MB. A
+            # 4000-byte head read saw none of them, so the guard reported
+            # "clean" no matter what was patched and copied a patched cjs over
+            # the baseline - the data-loss class it was written to prevent.
             with open(paths.cjs, "rb") as _f:
-                head = _f.read(4000)
-            if not any(m in head for m in CJS_MARKERS):
+                body = _f.read()
+            if not any(m.encode("utf-8") in body for m in CJS_MARKERS):
                 shutil.copy2(paths.cjs, paths.cjs_bak)
     if not paths.unpacked_bak.exists() and paths.unpacked.exists():
         shutil.copytree(paths.unpacked, paths.unpacked_bak)

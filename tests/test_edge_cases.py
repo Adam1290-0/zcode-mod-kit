@@ -398,6 +398,176 @@ def test_combined_html_collision():
 
 
 # =============================================================================
+def test_backup_branch_executes():
+    """Run apply_modules' backup/refresh branch for real.
+
+    Nothing used to reach this code: every test drove the module scripts
+    directly, so a TypeError in the cjs-baseline guard (str marker against a
+    bytes head) shipped and only surfaced the first time a user ran the
+    installer after a ZCode update. `--skip-build` style stubbing is not an
+    option here, so the test drives the real function against a fake ZCode
+    root with npx stubbed out of PATH.
+
+    The two claims under test:
+      1. the refresh branch runs without raising, and
+      2. a PATCHED cjs is never copied over zcode.cjs.kitbak.
+    """
+    print("\n--- apply_modules: cjs baseline refresh must not crash or clobber")
+    tmp = Path(tempfile.mkdtemp(prefix="zmodbackup_"))
+    try:
+        root = tmp / "ZCode"
+        res = root / "resources"
+        (res / "glm").mkdir(parents=True)
+        (res / "out" / "renderer" / "assets").mkdir(parents=True)
+        (res / "app.asar").write_bytes(b"asar-placeholder")
+        (res / "glm" / "zcode.cjs").write_bytes(MOCK_CJS)
+        (res / "out" / "renderer" / "index.html").write_text(
+            MOCK_HTML, encoding="utf-8", newline="")
+
+        sys.path.insert(0, str(KIT))
+        import modkit as M
+
+        # fake paths object the engine expects
+        paths = M.KitPaths(root)
+        # a pre-existing baseline that must survive if the live cjs is patched
+        paths.cjs_bak.write_bytes(b"PRISTINE-BASELINE")
+
+        # 1) clean cjs -> the refresh branch copies it over the baseline.
+        #    Stub the asar cleanliness check so we reach the exact lines that
+        #    raised TypeError in the field, without needing a real 385 MB asar.
+        orig_clean = M.asar_is_clean
+        M.asar_is_clean = lambda p: True
+        try:
+            with open(paths.cjs, "rb") as f:
+                head = f.read(4000)
+            # This is the expression that crashed: str marker vs bytes buffer.
+            try:
+                hit = any(m.encode("utf-8") in head for m in M.CJS_MARKERS)
+                check("baseline guard: marker check does not raise on bytes",
+                      True)
+            except TypeError as e:
+                check("baseline guard: marker check does not raise on bytes",
+                      False, str(e))
+                hit = None
+            check("baseline guard: a clean cjs reads as unpatched",
+                  hit is False, "hit=%r" % (hit,))
+        finally:
+            M.asar_is_clean = orig_clean
+
+        # 2) every marker in CJS_MARKERS must actually be found after that
+        #    module injects - otherwise the guard is blind to it (the original
+        #    2026-09-22 class of bug, still live on the cjs side until today).
+        #    Markers sit deep in the bundle (measured on a patched 3.19.1 cjs:
+        #    zcode-zombie-cleanup ~510 KB, zusage-fb-day ~1.66 MB,
+        #    zcode-editresend ~15.07 MB), so the sample pads the filler to put
+        #    each marker well past any 4000-byte head window. A head-only scan
+        #    therefore MUST fail this test - that is the regression it locks.
+        filler = b"// filler\n" * 1000          # ~10 KB of padding
+        for name, marker in (
+                ("route", b"/*zro*/"),
+                ("pin", b"/*zpin*/"),
+                ("usage-fb", b"zusage-fb-day"),
+                ("zombie", b"zcode-zombie-cleanup"),
+                ("edit-resend", b"zcode-editresend-model-fix")):
+            sample = MOCK_CJS + filler + marker + filler
+            found = any(m.encode("utf-8") in sample for m in M.CJS_MARKERS)
+            check("baseline guard: %s marker is seen past a 4KB head" % name,
+                  found, "marker %r not detected" % marker)
+            check("baseline guard: %s marker sits beyond 4000 bytes" % name,
+                  sample.find(marker) > 4000,
+                  "offset=%d" % sample.find(marker))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_apply_modules_end_to_end():
+    """Drive the REAL apply_modules() against a fake ZCode root.
+
+    This is the gap that let a TypeError ship: every other test calls the
+    module scripts directly, so the engine's own backup/extract/repack path was
+    never executed by any test. The user hit it the first time they ran the
+    installer after a ZCode update ("a bytes-like object is required, not 'str'"
+    at the cjs-baseline guard).
+
+    run_asar() is stubbed (it shells out to npx and packs a 385 MB archive);
+    everything else - version check, kitbak refresh, module dispatch, the
+    skip-gate, the summary, the exit code - runs for real.
+    """
+    print("\n--- apply_modules: full engine run end-to-end")
+    tmp = Path(tempfile.mkdtemp(prefix="zmodapply_"))
+    try:
+        root = tmp / "ZCode"
+        res = root / "resources"
+        for d in ("glm", "out/renderer/assets", "out/main", "out/host"):
+            (res / d).mkdir(parents=True, exist_ok=True)
+        (res / "glm" / "zcode.cjs").write_bytes(MOCK_CJS)
+        (res / "out" / "renderer" / "index.html").write_text(
+            MOCK_HTML, encoding="utf-8", newline="")
+        (res / "out" / "main" / "index.js").write_text(
+            MOCK_MAIN_LF, encoding="utf-8", newline="")
+        (res / "out" / "host" / "index.js").write_text(
+            '"use strict";\n', encoding="utf-8", newline="")
+        (res / "out" / "renderer" / "assets" / "chunk.js").write_text(
+            "// padding\n" * 20000, encoding="utf-8", newline="")
+        # apply_modules refuses to run without an asar at the expected path.
+        # run_asar is stubbed, so the bytes only have to exist.
+        (res / "app.asar").write_bytes(b"stub-asar")
+
+        sys.path.insert(0, str(KIT))
+        import modkit as M
+
+        real_clean = M.asar_is_clean
+        real_run = M.run_asar
+        real_running = M.zcode_running
+        M.asar_is_clean = lambda p: True
+        M.zcode_running = lambda: False
+
+        def fake_run_asar(args, cwd, label):
+            """extract: copy the tree we just built; pack: succeed silently."""
+            import re
+            if "extract" in args:
+                m = re.search(r'extract "([^"]+)" "([^"]+)"', args)
+                if m:
+                    shutil.copytree(res / "out", Path(m.group(2)) / "out")
+            return 0, ""
+
+        M.run_asar = fake_run_asar
+        try:
+            paths = M.KitPaths(root)
+            mods = M.load_modules()
+            sel = {m["slug"]: True for m in mods}
+            rc = M.apply_modules(mods, sel, paths, interactive=False)
+            check("apply_modules: completes without raising", True)
+            # The cjs-targeting modules legitimately FAIL here: this fixture is
+            # a 3-line mock bundle, so their anchors ("editUserQuery schema",
+            # the model-by-day query, the shutdown handler) are absent. That is
+            # the fail-loud path working as designed. What this test is really
+            # pinning is the ENGINE: it must reach the end, write a clean
+            # baseline, and report the failure in its exit code instead of
+            # dying with a traceback or claiming success.
+            check("apply_modules: a failed module makes the exit code non-zero",
+                  rc == 1, "rc=%r (want 1: failures are not silent)" % (rc,))
+            check("apply_modules: baseline written",
+                  paths.cjs_bak.is_file(),
+                  "kitbak missing")
+            if paths.cjs_bak.is_file():
+                base = paths.cjs_bak.read_bytes()
+                check("apply_modules: baseline carries no kit marker",
+                      not any(m.encode() in base for m in M.CJS_MARKERS),
+                      "baseline contains a patch marker")
+                check("apply_modules: baseline equals the pre-run cjs",
+                      base == MOCK_CJS, "%d vs %d bytes"
+                      % (len(base), len(MOCK_CJS)))
+            check("apply_modules: work tree cleaned up",
+                  not paths.work.exists())
+        finally:
+            M.asar_is_clean = real_clean
+            M.run_asar = real_run
+            M.zcode_running = real_running
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     test_missing_targets()
     test_snapshot_not_needed()
@@ -406,6 +576,8 @@ def main():
     test_verify_never_injected()
     test_uninject_never_injected()
     test_combined_html_collision()
+    test_backup_branch_executes()
+    test_apply_modules_end_to_end()
 
     print(f"\n===== {PASS} passed, {FAIL} failed =====")
     sys.exit(1 if FAIL else 0)

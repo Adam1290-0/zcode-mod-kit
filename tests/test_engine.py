@@ -321,6 +321,58 @@ def main():
                 bad.append((k, l))
     check("i18n: placeholder counts agree across languages", not bad, str(bad[:4]))
 
+    # ---- intro animation: must actually run, in both languages ------------
+    # The snowfall loop used a local `t = f / fps` that shadowed the global
+    # translation helper t(), so the very first frame raised UnboundLocalError
+    # and the intro died before printing anything. Nothing tested this path.
+    print("\n--- intro: snowfall + splash plate render cleanly")
+    import io as _io2
+
+    class _TTY(_io2.StringIO):
+        def isatty(self):
+            return True
+        encoding = "utf-8"
+
+    for lg in ("zh", "en"):
+        buf = _TTY()
+        old = sys.stdout
+        sys.stdout = buf
+        try:
+            M.set_lang(lg)
+            M.snowfall(seconds=0.4, rows=12, cols=70, fps=20)
+            M.clear()
+            print(M.splash_plate(M.load_modules(), M.KIT_VERSION))
+        finally:
+            out = buf.getvalue()
+            sys.stdout = old
+        check("intro[%s]: no traceback text in the output" % lg,
+              "Traceback" not in out and "UnboundLocal" not in out
+              and "TypeError" not in out, out[-300:])
+        check("intro[%s]: emitted animation frames" % lg,
+              out.count("\x1b[H") > 3, "frames=%d" % out.count("\x1b[H"))
+        check("intro[%s]: alternate screen paired" % lg,
+              out.count("\x1b[?1049h") == out.count("\x1b[?1049l"))
+        check("intro[%s]: skip hint shown" % lg,
+              ("按任意键" in out) or ("press any key" in out))
+        check("intro[%s]: splash plate rendered" % lg,
+              "zcode mod kit" in out, out[-200:])
+    M.set_lang("en")
+
+    # The translation helper must stay callable from inside snowfall: a local
+    # assignment to the same name would shadow it again.
+    import ast as _ast
+    src = (ROOT / "modkit.py").read_text(encoding="utf-8")
+    tree = _ast.parse(src)
+    shadowed = []
+    for n in _ast.walk(tree):
+        if isinstance(n, _ast.FunctionDef):
+            for x in _ast.walk(n):
+                if (isinstance(x, _ast.Name) and isinstance(x.ctx, _ast.Store)
+                        and x.id == "t"):
+                    shadowed.append(n.name)
+    check("intro: no function rebinds the global t() helper",
+          not shadowed, str(shadowed))
+
     print(f"\n===== {_passed} passed, {_failed} failed =====")
     return 1 if _failed else 0
 

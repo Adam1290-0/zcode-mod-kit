@@ -52,7 +52,9 @@ rem ----  this file never has to be edited when a module bumps)
 rem ---- The reassurance line now lives inside splash_plate: echoing it here
 rem ---- would be wiped by the clear() the --from-splash run does next.
 %PY% modkit.py --splash %*
-if errorlevel 2 goto pyfail
+rem --splash writes no files; any non-zero means it could not even draw
+rem the intro (bad python, missing modkit.py), so treat rc!=0 as fatal.
+if errorlevel 1 goto pyfail
 
 %PY% modkit.py --from-splash %*
 if errorlevel 1 goto pyfail

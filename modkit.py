@@ -521,7 +521,8 @@ def snowfall(seconds=3.0, rows=15, cols=76, fps=24, reveal=True):
 
     sys.stdout.write("\x1b[?1049h")     # alternate screen
     sys.stdout.write("\x1b[?25l")       # hide cursor
-    skip_hint = t("splash.skip")
+    skip_hint = t("splash.skip")   # translate before `t` is
+                                    # rebound to the frame clock
     try:
         frames = int(seconds * fps)
         for f in range(frames):
@@ -535,21 +536,21 @@ def snowfall(seconds=3.0, rows=15, cols=76, fps=24, reveal=True):
                         break
                 except Exception:
                     pass
-            t = f / fps
+            elapsed = f / fps
             grid = [[" "] * cols for _ in range(rows)]
             for s in flakes:
                 s["y"] += s["v"]
                 if s["y"] >= rows + 1:
                     s["y"] = -1.0 - random.random() * 3
                     s["x"] = random.uniform(0, cols - 1)
-                x = int(s["x"] + math.sin(t * s["sway_sp"] * 6.283 + s["sway_ph"])
+                x = int(s["x"] + math.sin(elapsed * s["sway_sp"] * 6.283 + s["sway_ph"])
                         * s["sway_amp"])
                 y = int(s["y"])
                 if not (0 <= y < rows and 0 <= x < cols):
                     continue
                 ch = s["ch"]
                 col = s["col"]
-                if s["tw"] and math.sin(t * 5.0 + s["ph"]) > 0.72:
+                if s["tw"] and math.sin(elapsed * 5.0 + s["ph"]) > 0.72:
                     ch, col = "+", SNOW_SPARKLE
                 grid[y][x] = col + ch + RESET
 
@@ -559,7 +560,7 @@ def snowfall(seconds=3.0, rows=15, cols=76, fps=24, reveal=True):
             if reveal and f > frames * 0.38:
                 prog = (f - frames * 0.38) / max(1, frames * 0.62)
                 shown = int(math.ceil(prog * len(BANNER_LINES)))
-                sweep = (t * 26.0) % (banner_w + 24) - 12
+                sweep = (elapsed * 26.0) % (banner_w + 24) - 12
                 for i, ln in enumerate(BANNER_LINES[:shown]):
                     y = banner_top + i
                     if not (0 <= y < rows):
@@ -582,7 +583,7 @@ def snowfall(seconds=3.0, rows=15, cols=76, fps=24, reveal=True):
                             shade = BANNER_GRAD[2]
                         grid[y][x] = shade + ch + RESET
 
-            out = [_render_frame(grid, rows, cols, t)]
+            out = [_render_frame(grid, rows, cols, elapsed)]
             if reveal and f > frames * 0.72:
                 word = random.choice(WINTER_WORDS)
                 pad = max(0, (cols - len(word) - 4) // 2)
@@ -1004,8 +1005,8 @@ def _spin(label):
 def run_asar(args, cwd, label):
     """Run npx @electron/asar with a spinner; returns (rc, output)."""
     _spinner_stop.clear()
-    t = threading.Thread(target=_spin, args=(label,), daemon=True)
-    t.start()
+    spin = threading.Thread(target=_spin, args=(label,), daemon=True)
+    spin.start()
     proc = subprocess.Popen(
         "npx --yes @electron/asar " + args,
         shell=True, cwd=str(cwd),
@@ -1014,15 +1015,15 @@ def run_asar(args, cwd, label):
     )
     out, _ = proc.communicate()
     _spinner_stop.set()
-    t.join(timeout=1)
+    spin.join(timeout=1)
     return proc.returncode, out
 
 
 def run_py(script, args, label):
     """Run a module python script with a spinner; returns (rc, output)."""
     _spinner_stop.clear()
-    t = threading.Thread(target=_spin, args=(label,), daemon=True)
-    t.start()
+    spin = threading.Thread(target=_spin, args=(label,), daemon=True)
+    spin.start()
     proc = subprocess.Popen(
         [sys.executable, str(script)] + args,
         cwd=str(script.parent),
@@ -1031,7 +1032,7 @@ def run_py(script, args, label):
     )
     out, _ = proc.communicate()
     _spinner_stop.set()
-    t.join(timeout=1)
+    spin.join(timeout=1)
     return proc.returncode, out
 
 

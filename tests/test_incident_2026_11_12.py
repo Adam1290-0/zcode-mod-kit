@@ -148,23 +148,31 @@ def test_schema_alias_resolution():
         print("  [SKIP] original cjs not available, cannot verify scope")
         return
     cjs = CJS_BAK.read_bytes().decode("utf-8", "replace")
-    i = cjs.find("editUserQuery:m.object(")
-    check("editUserQuery schema found in cjs", i > 0)
-    if i <= 0:
+    # The zod binding is `m` on 3.18.x and `d` on 3.19.1 - never hardcode it,
+    # or this test fails the moment the bundle renames it (it did).
+    m = re.search(r"editUserQuery:([A-Za-z_$][\w$]*)\.object\(", cjs)
+    check("editUserQuery schema found in cjs", bool(m))
+    if not m:
         return
-    seg = cjs[i:i + 520]
+    zod = re.escape(m.group(1))
+    seg = cjs[m.start():m.start() + 520]
     aliases = {}
     for key in ("modelSelection", "mode"):
         a = re.search(key + r":([A-Za-z_$][\w$]*)", seg)
         aliases[key] = a.group(1) if a else "?"
-    t = re.search(r"retryTurn:m\.object\(\{target:([A-Za-z_$][\w$]*)", cjs)
+    t = re.search(r"retryTurn:" + zod + r"\.object\(\{target:([A-Za-z_$][\w$]*)",
+                  cjs)
     aliases["target"] = t.group(1) if t else "?"
     triple = (aliases["target"], aliases["modelSelection"], aliases["mode"])
+    KNOWN = (("PR", "Wc", "H4"), ("DR", "Wc", "J4"),
+             ("$R", "qc", "fj"))
     check(f"this cjs's alias triple {triple} is one the module knows",
-          triple in (("PR", "Wc", "H4"), ("DR", "Wc", "J4")), str(triple))
-    # An alias only counts if it really behaves like a zod schema.
-    check("Wc.optional() appears many times (real zod alias)",
-          len(re.findall(r"\bWc\.optional\(\)", cjs)) > 10)
+          triple in KNOWN, str(triple))
+    # The modelSelection alias must really be a zod schema in this bundle.
+    ms = aliases["modelSelection"]
+    check("%s.optional() appears many times (real zod alias)" % ms,
+          len(re.findall(r"\b" + re.escape(ms) + r"\.optional\(\)", cjs)) > 10,
+          "count=%d" % len(re.findall(r"\b" + re.escape(ms) + r"\.optional\(\)", cjs)))
     check("Nl is NOT a zod schema (the original bug)",
           len(re.findall(r"\bNl\.optional\(\)", cjs)) == 0)
 
